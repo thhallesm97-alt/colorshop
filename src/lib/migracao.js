@@ -55,6 +55,7 @@ export function normalizar(bruto) {
     custo: num(i.custo),
     varejo: num(i.varejo ?? i.venda ?? num(i.custo) * 1.3),
     atacado: num(i.atacado ?? i.venda ?? num(i.custo) * 1.15),
+    lojista: num(i.lojista ?? i.atacado ?? i.venda ?? num(i.custo) * 1.1),
     min: num(i.min ?? 3),
     baseEm: num(i.baseEm),
   }));
@@ -114,6 +115,7 @@ export function normalizar(bruto) {
     movimentos,
     clientes: (bruto.clientes || []).map(pessoa),
     fornecedores: (bruto.fornecedores || []).map(pessoa),
+    vendedores: (bruto.vendedores || []).map((v) => ({ ...v, id: String(v.id), nome: String(v.nome || "Sem nome"), comissao: num(v.comissao), meta: num(v.meta), ativo: v.ativo !== false })),
     contas: (bruto.contas || []).map(conta),
   };
   if (bruto.cambio && typeof bruto.cambio === "object") {

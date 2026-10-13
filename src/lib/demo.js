@@ -11,15 +11,21 @@ export function dadosDemo() {
     ["p6", "Omeprazol 20mg (28 caps.)", 18, 1.8, 4.6, 3.9, 8],
     ["p7", "Soro fisiológico 500ml", 40, 0.7, 1.9, 1.5, 12],
     ["p8", "Protetor solar FPS 50", 9, 6.5, 14.9, 12.5, 4],
-  ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({ id, nome, qtd, custo, varejo, atacado, min, baseEm: 0 }));
+  ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({ id, nome, qtd, custo, varejo, atacado, lojista: Math.round((atacado - (atacado - custo) * 0.3) * 100) / 100, min, baseEm: 0 }));
   const clientes = [
     { id: "c1", nome: "María González", contato: "+595 981 234 567" },
-    { id: "c2", nome: "Carlos Benítez", contato: "+595 971 555 012" },
+    { id: "c2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado" },
     { id: "c3", nome: "Ana Duarte", contato: "+595 991 300 450" },
+    { id: "c4", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista" },
+    { id: "c5", nome: "Jorge Villalba", contato: "+595 975 410 880", proximoContato: diasAtras(0), notaContato: "Disse que faz o pedido hoje", ultimoContato: diasAtras(4) },
   ];
   const fornecedores = [
     { id: "f1", nome: "Distribuidora Guaraní", contato: "+595 21 600 100", obs: "Entrega às terças" },
     { id: "f2", nome: "Farma Import CDE", contato: "+595 61 500 200" },
+  ];
+  const vendedores = [
+    { id: "s1", nome: "Lucas Ortiz", contato: "+595 981 100 200", comissao: 5, meta: 1500, ativo: true },
+    { id: "s2", nome: "Patricia Rojas", contato: "+595 982 300 400", comissao: 4, meta: 1200, ativo: true },
   ];
   const linha = (pid, qtd, tipo = "Varejo") => {
     const p = estoque.find((x) => x.id === pid);
@@ -27,21 +33,23 @@ export function dadosDemo() {
     return { itemId: pid, itemNome: p.nome, qtd, tipoVenda: tipo, precoUnit, subtotal: precoUnit * qtd };
   };
   const vendasBrutas = [
-    [0, "c1", [["p1", 2], ["p6", 1]], "PIX", "À vista"],
-    [0, "", [["p7", 3]], "Dólar", "À vista"],
-    [1, "c2", [["p5", 2], ["p1", 4, "Atacado"]], "PIX", "A prazo"],
-    [2, "c3", [["p3", 1], ["p8", 1]], "Real", "À vista"],
-    [4, "c1", [["p1", 3], ["p2", 2]], "PIX", "À vista"],
-    [6, "", [["p6", 2]], "Dólar", "À vista"],
-    [9, "c2", [["p4", 1], ["p1", 2]], "USDT", "A prazo"],
-    [15, "c3", [["p5", 1], ["p7", 2]], "PIX", "À vista"],
+    [0, "c1", [["p1", 2], ["p6", 1]], "PIX", "À vista", "s1"],
+    [0, "", [["p7", 3]], "Dólar", "À vista", "s2"],
+    [1, "c4", [["p5", 40, "Lojista"], ["p1", 60, "Lojista"]], "PIX", "A prazo", "s1"],
+    [3, "c1", [["p3", 1], ["p8", 1]], "Real", "À vista", "s2"],
+    [4, "c1", [["p1", 3], ["p2", 2]], "PIX", "À vista", "s1"],
+    [6, "", [["p6", 2]], "Dólar", "À vista", ""],
+    [9, "c2", [["p4", 10, "Atacado"], ["p1", 20, "Atacado"]], "USDT", "A prazo", "s2"],
+    [15, "c3", [["p5", 1], ["p7", 2]], "PIX", "À vista", "s2"],
+    [12, "c5", [["p6", 3], ["p3", 2]], "PIX", "À vista", "s1"],
   ];
-  const vendas = vendasBrutas.map(([dias, clienteId, itens, pagamento, condicao], i) => {
+  const vendas = vendasBrutas.map(([dias, clienteId, itens, pagamento, condicao, vendedorId], i) => {
     const linhas = itens.map(([p, q, t]) => linha(p, q, t));
     const valor = linhas.reduce((s, l) => s + l.subtotal, 0);
     return {
       id: "v" + (vendasBrutas.length - i), numero: vendasBrutas.length - i, clienteId,
-      clienteNome: clientes.find((c) => c.id === clienteId)?.nome || "Sem nome", itens: linhas, valor, pagamento, condicao,
+      clienteNome: clientes.find((c) => c.id === clienteId)?.nome || "Sem nome",
+      vendedorId, vendedorNome: vendedores.find((v) => v.id === vendedorId)?.nome || "", itens: linhas, valor, pagamento, condicao,
       status: condicao === "À vista" ? "Pago" : "Pendente", data: diasAtras(dias), ts: 0,
     };
   });
@@ -54,5 +62,5 @@ export function dadosDemo() {
     { id: "k2", nome: "Aluguel", categoria: "Aluguel", valor: 600, vencimento: diasAtras(-12), status: "Pendente", dataPagamento: null },
     { id: "k3", nome: "Internet", categoria: "Internet", valor: 35, vencimento: diasAtras(3), status: "Pago", dataPagamento: diasAtras(4) },
   ];
-  return { estoque, clientes, fornecedores, vendas, movimentos, contas, compras: [] };
+  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras: [] };
 }

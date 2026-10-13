@@ -15,3 +15,19 @@ export const PAGAMENTOS = ["PIX", "Real", "Dólar", "USDT"];
 export const caixaDoPagamento = (p) => (p === "USDT" ? "usdt" : p === "Dólar" ? "dolar" : p === "PIX" ? "pix" : "real");
 
 export const CAMBIO_PADRAO = { id: "cambio", tcr: 5.26, chacoCompra: 5.26, chacoVenda: 5.35, modo: "Manual" };
+
+// As três tabelas de preço de cada produto.
+export const TABELAS = [
+  { valor: "Varejo", label: "Varejo", campo: "varejo" },
+  { valor: "Atacado", label: "Atacado", campo: "atacado" },
+  { valor: "Lojista", label: "Lojista", campo: "lojista" },
+];
+export const precoDe = (item, tabela) => {
+  if (!item) return 0;
+  if (tabela === "Atacado") return Number(item.atacado || 0);
+  if (tabela === "Lojista") return Number(item.lojista ?? item.atacado ?? 0);
+  return Number(item.varejo || 0);
+};
+
+// Depois de quantos dias sem pedido o cliente aparece nos lembretes.
+export const DIAS_SEM_PEDIDO = 7;

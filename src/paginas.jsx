@@ -2,9 +2,11 @@ import React, { useMemo, useState } from "react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
+  ListChecks, ChevronLeft, ChevronRight, Target, CalendarClock,
 } from "lucide-react";
-import { useApp, CAIXA_META } from "./contexto.js";
-import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar } from "./lib/format.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO } from "./contexto.js";
+import { linkWhatsApp } from "./lib/whatsapp.js";
+import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar, parseISO } from "./lib/format.js";
 import {
   Badge, StatCard, TableShell, Th, Td, Vazio, Cartao, Segmentado, btnPrimario, btnSecundario, btnContorno, btnIcone, btnIconePerigo,
 } from "./ui.jsx";
@@ -33,10 +35,11 @@ export function VisaoGeral() {
   const {
     cambio, vendas, vendasHoje, vendasDoDia, aReceber, totalContasPendentes, contasPendentes, valorEstoque, unidadesEstoque,
     clientes, fornecedores, caixas, estoque, estoqueBaixo, vendasACobrar, contasVencendo, abrirModal, setPage,
+    clientesSemPedido, registrarContato,
   } = useApp();
   const top = useMemo(() => calcularMaisVendidos(vendas, estoque, diasAtras(29)).slice(0, 5), [vendas, estoque]);
   const maxTop = top[0]?.qtd || 1;
-  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || estoqueBaixo.length > 0;
+  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || estoqueBaixo.length > 0 || clientesSemPedido.length > 0;
   const hoje = todayISO();
 
   return (
@@ -69,7 +72,7 @@ export function VisaoGeral() {
         <div className="border border-amber-200 bg-amber-50/70 rounded-xl p-5 mb-6">
           <div className="text-sm font-semibold text-amber-900">Lembretes de hoje</div>
           <div className="text-xs text-amber-700 mb-4 first-letter:uppercase">{fmtDateLong()}</div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-5">
             <Lembretes titulo={`A receber (${vendasACobrar.length})`} vazio="Ninguém a cobrar no momento.">
               {vendasACobrar.slice(0, 6).map((v) => {
                 const cliente = clientes.find((c) => c.id === v.clienteId);
@@ -117,6 +120,14 @@ export function VisaoGeral() {
               ))}
               {estoqueBaixo.length > 6 && (
                 <button onClick={() => setPage("estoque")} className="text-xs font-medium text-amber-800 hover:underline">Ver todos</button>
+              )}
+            </Lembretes>
+            <Lembretes titulo={`Clientes para contatar (${clientesSemPedido.length})`} vazio="Nenhum cliente para contatar hoje.">
+              {clientesSemPedido.slice(0, 6).map((c) => (
+                <LinhaSemPedido key={c.id} c={c} registrarContato={registrarContato} abrirModal={abrirModal} />
+              ))}
+              {clientesSemPedido.length > 6 && (
+                <button onClick={() => setPage("clientes")} className="text-xs font-medium text-amber-800 hover:underline">Ver todos</button>
               )}
             </Lembretes>
           </div>
@@ -227,6 +238,37 @@ export function VisaoGeral() {
   );
 }
 
+export const diasDesde = (iso) => Math.round((parseISO(todayISO()) - parseISO(iso)) / 86400000);
+
+export const mensagemSaudade = (c) =>
+  c.motivo === "retorno" || c.proximoContato
+    ? `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Conforme combinamos, estou passando para ver o seu pedido. Quer que eu te mande a lista de preços atualizada?`
+    : `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Faz alguns dias que não recebemos seu pedido. Precisa de algum produto? Posso te mandar nossa lista de preços atualizada.`;
+
+function LinhaSemPedido({ c, registrarContato, abrirModal }) {
+  const retorno = c.motivo === "retorno";
+  return (
+    <li className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+      <div className="min-w-0">
+        <div className="font-medium text-slate-900 truncate">{c.nome}</div>
+        {retorno ? (
+          <div className="text-xs text-sky-700 truncate" title={c.notaContato || ""}>
+            Retorno {c.proximoContato < todayISO() ? `atrasado desde ${fmtDate(c.proximoContato)}` : "agendado para hoje"}
+            {c.notaContato ? ` · ${c.notaContato}` : ""}
+          </div>
+        ) : (
+          <div className="text-xs text-slate-400">Último pedido há {diasDesde(c.ultimaCompra)} dias</div>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <LinkWhatsApp contato={c.contato} texto={mensagemSaudade(c)} onClick={() => registrarContato(c.id)} rotulo="Mensagem" />
+        <button onClick={() => abrirModal("listaPrecos", c)} className={btnIcone} title="Enviar lista de preços"><ListChecks size={15} /></button>
+        <button onClick={() => abrirModal("agendar", c)} className={btnIcone} title="Agendar próximo contato"><CalendarClock size={15} /></button>
+      </div>
+    </li>
+  );
+}
+
 function Lembretes({ titulo, vazio, children }) {
   const itens = React.Children.toArray(children);
   return (
@@ -238,12 +280,20 @@ function Lembretes({ titulo, vazio, children }) {
 }
 
 // Abre o WhatsApp (aplicativo ou WhatsApp Web) com a mensagem já escrita.
-export function LinkWhatsApp({ contato, texto }) {
-  const numero = String(contato || "").replace(/\D/g, "");
-  if (numero.length < 8) return null;
+export function LinkWhatsApp({ contato, texto, onClick, rotulo }) {
+  if (String(contato || "").replace(/\D/g, "").length < 8) return null;
+  const href = linkWhatsApp(contato, texto);
+  if (rotulo) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" onClick={onClick} className={btnContorno}>
+        <MessageCircle size={13} /> {rotulo}
+      </a>
+    );
+  }
   return (
     <a
-      href={`https://wa.me/${numero}?text=${encodeURIComponent(texto)}`}
+      href={href}
+      onClick={onClick}
       target="_blank"
       rel="noreferrer"
       title="Enviar mensagem no WhatsApp"
@@ -287,6 +337,9 @@ export function EstoquePage() {
             onChange={(v) => setSoBaixo(v === "baixo")}
             opcoes={[{ valor: "todos", label: "Todos" }, { valor: "baixo", label: `Repor (${estoqueBaixo.length})` }]}
           />
+          <button onClick={() => abrirModal("listaPrecos")} className={btnSecundario}>
+            <ListChecks size={14} /> Lista de preços
+          </button>
           <button onClick={() => abrirModal("compra")} className={btnSecundario}>
             <Plus size={14} /> Entrada (compra)
           </button>
@@ -304,7 +357,7 @@ export function EstoquePage() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50/50">
-            <Th>Produto</Th><Th right>Qtd</Th><Th right>Mínimo</Th><Th right>Custo un.</Th><Th right>Varejo</Th><Th right>Atacado</Th><Th right>Valor total</Th><Th right>Ações</Th>
+            <Th>Produto</Th><Th right>Qtd</Th><Th right>Mínimo</Th><Th right>Custo un.</Th><Th right>Varejo</Th><Th right>Atacado</Th><Th right>Lojista</Th><Th right>Valor total</Th><Th right>Ações</Th>
           </tr>
         </thead>
         <tbody>
@@ -327,6 +380,7 @@ export function EstoquePage() {
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.custo)}</Td>
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.varejo)}</Td>
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.atacado)}</Td>
+                <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.lojista ?? i.atacado)}</Td>
                 <Td right className="text-slate-900 font-medium whitespace-nowrap">{fmtUSD(Math.max(0, i.qtd) * i.custo)}</Td>
                 <Td right>
                   <div className="flex items-center justify-end gap-1">
@@ -338,7 +392,7 @@ export function EstoquePage() {
             );
           })}
           {lista.length === 0 && (
-            <Vazio colSpan={8}>{estoque.length === 0 ? "Nenhum produto cadastrado." : "Nenhum produto encontrado."}</Vazio>
+            <Vazio colSpan={9}>{estoque.length === 0 ? "Nenhum produto cadastrado." : "Nenhum produto encontrado."}</Vazio>
           )}
         </tbody>
       </table>
@@ -347,9 +401,10 @@ export function EstoquePage() {
 }
 
 export function VendasPage() {
-  const { vendas, abrirModal, clientes } = useApp();
+  const { vendas, abrirModal, clientes, vendedores } = useApp();
   const [filtro, setFiltro] = useState("todas");
-  const lista = vendas.filter((v) => filtro === "todas" || v.status === filtro);
+  const [vend, setVend] = useState("");
+  const lista = vendas.filter((v) => (filtro === "todas" || v.status === filtro) && (!vend || (vend === "-" ? !v.vendedorId : v.vendedorId === vend)));
   const total = lista.reduce((s, v) => s + v.valor, 0);
   return (
     <TableShell
@@ -357,6 +412,13 @@ export function VendasPage() {
       sub={`${lista.length} registros · ${fmtUSD(total)}`}
       action={
         <div className="flex items-center gap-2 flex-wrap">
+          {vendedores.length > 0 && (
+            <select value={vend} onChange={(e) => setVend(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600">
+              <option value="">Todos os vendedores</option>
+              {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+              <option value="-">Sem vendedor</option>
+            </select>
+          )}
           <Segmentado
             valor={filtro}
             onChange={setFiltro}
@@ -371,7 +433,7 @@ export function VendasPage() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50/50">
-            <Th>Venda</Th><Th>Cliente</Th><Th>Itens</Th><Th right>Valor</Th><Th>Pagamento</Th><Th>Status</Th><Th right>Ações</Th>
+            <Th>Venda</Th><Th>Cliente</Th><Th>Vendedor</Th><Th>Itens</Th><Th right>Valor</Th><Th>Pagamento</Th><Th>Status</Th><Th right>Ações</Th>
           </tr>
         </thead>
         <tbody>
@@ -384,6 +446,7 @@ export function VendasPage() {
                   <div className="text-xs text-slate-400">{fmtDate(v.data)}</div>
                 </Td>
                 <Td className="text-slate-600">{v.clienteNome}</Td>
+                <Td className="text-slate-500">{v.vendedorNome || "—"}</Td>
                 <Td className="text-slate-600">
                   {(v.itens || []).map((l, idx) => (
                     <div key={idx} className={idx > 0 ? "mt-1" : ""}>
@@ -405,7 +468,7 @@ export function VendasPage() {
               </tr>
             );
           })}
-          {lista.length === 0 && <Vazio colSpan={7}>Nenhuma venda encontrada.</Vazio>}
+          {lista.length === 0 && <Vazio colSpan={8}>Nenhuma venda encontrada.</Vazio>}
         </tbody>
       </table>
     </TableShell>
@@ -573,9 +636,12 @@ export function PessoasPage({ tipo }) {
   const isCliente = tipo === "cliente";
   const data = isCliente ? app.clientes : app.fornecedores;
   const [q, setQ] = useState("");
+  const [soSemPedido, setSoSemPedido] = useState(false);
+  const semPedido = new Set(isCliente ? app.clientesSemPedido.map((c) => c.id) : []);
   const termo = normalizar(q);
   const lista = data
     .filter((p) => !termo || normalizar(p.nome).includes(termo) || normalizar(p.contato).includes(termo))
+    .filter((p) => !soSemPedido || semPedido.has(p.id))
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   const resumo = useMemo(() => {
     if (!isCliente) return {};
@@ -595,7 +661,14 @@ export function PessoasPage({ tipo }) {
       title={isCliente ? "Clientes" : "Fornecedores"}
       sub={`${data.length} cadastros`}
       action={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isCliente && (
+            <Segmentado
+              valor={soSemPedido ? "sem" : "todos"}
+              onChange={(v) => setSoSemPedido(v === "sem")}
+              opcoes={[{ valor: "todos", label: "Todos" }, { valor: "sem", label: `Para contatar (${semPedido.size})` }]}
+            />
+          )}
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar..." className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 w-44 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
           <button onClick={() => app.abrirModal(tipo)} className={btnPrimario}>
             <Plus size={14} /> Novo
@@ -607,7 +680,7 @@ export function PessoasPage({ tipo }) {
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50/50">
             <Th>Nome</Th><Th>Contato</Th>
-            {isCliente && <><Th right>Total comprado</Th><Th>Última compra</Th><Th right>A receber</Th></>}
+            {isCliente && <><Th>Tabela</Th><Th right>Total comprado</Th><Th>Última compra</Th><Th right>A receber</Th></>}
             {!isCliente && <Th>Observação</Th>}
             <Th right>Ações</Th>
           </tr>
@@ -621,15 +694,28 @@ export function PessoasPage({ tipo }) {
                 <Td className="text-slate-600">{p.contato || "—"}</Td>
                 {isCliente && (
                   <>
+                    <Td className="text-slate-500">{p.tabela || "Varejo"}</Td>
                     <Td right className="text-slate-700 whitespace-nowrap">{fmtUSD(r?.total)}</Td>
-                    <Td className="text-slate-500">{r?.ultima ? fmtDate(r.ultima) : "—"}</Td>
+                    <Td className={semPedido.has(p.id) ? "text-amber-700 font-medium" : "text-slate-500"}>
+                      {r?.ultima ? fmtDate(r.ultima) : "—"}
+                      {r?.ultima && semPedido.has(p.id) && <div className="text-xs font-normal">há {diasDesde(r.ultima)} dias</div>}
+                      {p.proximoContato && (
+                        <div className="text-xs font-normal text-sky-700" title={p.notaContato || ""}>Retornar em {fmtDate(p.proximoContato)}{p.notaContato ? ` · ${p.notaContato}` : ""}</div>
+                      )}
+                    </Td>
                     <Td right className={r?.pendente ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>{r?.pendente ? fmtUSD(r.pendente) : "—"}</Td>
                   </>
                 )}
                 {!isCliente && <Td className="text-slate-500">{p.obs || "—"}</Td>}
                 <Td right>
                   <div className="flex items-center justify-end gap-1">
-                    <LinkWhatsApp contato={p.contato} texto={`Olá ${p.nome}, tudo bem? Aqui é da Indufarma.`} />
+                    <LinkWhatsApp
+                      contato={p.contato}
+                      texto={semPedido.has(p.id) ? mensagemSaudade(p) : `Olá ${p.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma.`}
+                      onClick={isCliente ? () => app.registrarContato(p.id) : undefined}
+                    />
+                    {isCliente && <button onClick={() => app.abrirModal("listaPrecos", p)} className={btnIcone} title="Enviar lista de preços"><ListChecks size={15} /></button>}
+                    {isCliente && <button onClick={() => app.abrirModal("agendar", p)} className={btnIcone} title="Agendar próximo contato"><CalendarClock size={15} /></button>}
                     <button onClick={() => app.abrirModal(tipo, p)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
                     <button onClick={() => app.excluirPessoa(tipo, p)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
                   </div>
@@ -638,7 +724,7 @@ export function PessoasPage({ tipo }) {
             );
           })}
           {lista.length === 0 && (
-            <Vazio colSpan={isCliente ? 6 : 4}>{data.length === 0 ? `Nenhum ${isCliente ? "cliente" : "fornecedor"} cadastrado.` : "Nenhum resultado."}</Vazio>
+            <Vazio colSpan={isCliente ? 7 : 4}>{data.length === 0 ? `Nenhum ${isCliente ? "cliente" : "fornecedor"} cadastrado.` : "Nenhum resultado."}</Vazio>
           )}
         </tbody>
       </table>
@@ -735,5 +821,104 @@ export function CambioForm({ onSave, initial }) {
         {salvo ? "Taxas salvas" : "Salvar taxas"}
       </button>
     </div>
+  );
+}
+
+const nomeMes = (ano, mes) => new Date(ano, mes, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+export function VendedoresPage() {
+  const { vendedores, vendas, abrirModal } = useApp();
+  const hoje = new Date();
+  const [ref, setRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
+  const prefixo = `${ref.ano}-${String(ref.mes + 1).padStart(2, "0")}`;
+  const ehMesAtual = ref.ano === hoje.getFullYear() && ref.mes === hoje.getMonth();
+  const mudarMes = (d) => setRef(({ ano, mes }) => {
+    const x = new Date(ano, mes + d, 1);
+    return { ano: x.getFullYear(), mes: x.getMonth() };
+  });
+
+  const doMes = vendas.filter((v) => String(v.data).startsWith(prefixo));
+  const linhas = [...vendedores]
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+    .map((vd) => {
+      const vs = doMes.filter((v) => v.vendedorId === vd.id);
+      const total = vs.reduce((s, v) => s + v.valor, 0);
+      const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + v.valor, 0);
+      const comissao = (total * Number(vd.comissao || 0)) / 100;
+      const meta = Number(vd.meta || 0);
+      return { vd, qtd: vs.length, total, recebido, comissao, meta, pct: meta > 0 ? (total / meta) * 100 : null };
+    })
+    .sort((a, b) => b.total - a.total);
+  const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + v.valor, 0);
+  const totalComissoes = linhas.reduce((s, l) => s + l.comissao, 0);
+  const totalVendido = linhas.reduce((s, l) => s + l.total, 0);
+
+  return (
+    <>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <button onClick={() => mudarMes(-1)} className={btnIcone} aria-label="Mês anterior"><ChevronLeft size={18} /></button>
+          <div className="text-sm font-semibold text-slate-900 w-40 text-center first-letter:uppercase">{nomeMes(ref.ano, ref.mes)}</div>
+          <button onClick={() => mudarMes(1)} className={btnIcone} aria-label="Próximo mês"><ChevronRight size={18} /></button>
+        </div>
+        <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <StatCard label="Vendido pelos vendedores" value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
+        <StatCard label="Comissões a pagar" value={fmtUSD(totalComissoes)} sub="Sobre o valor vendido no mês" icon={Receipt} tom="violet" />
+        <StatCard label="Vendedores" value={vendedores.filter((v) => v.ativo !== false).length} sub="Ativos" icon={Users} tom="slate" />
+      </div>
+
+      {vendedores.length === 0 ? (
+        <Cartao>
+          <div className="text-center py-8">
+            <div className="text-sm text-slate-600 mb-3">Nenhum vendedor cadastrado ainda.</div>
+            <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Cadastrar o primeiro vendedor</button>
+          </div>
+        </Cartao>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {linhas.map(({ vd, qtd, total, recebido, comissao, meta, pct }) => {
+            const bateu = pct != null && pct >= 100;
+            return (
+              <div key={vd.id} className={`bg-white border rounded-xl p-5 shadow-sm ${vd.ativo === false ? "border-slate-200 opacity-60" : "border-slate-200"}`}>
+                <div className="flex items-start justify-between gap-2 mb-4">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">{vd.nome}</div>
+                    <div className="text-xs text-slate-400">Comissão de {fmtNum(vd.comissao, 1)}%{vd.ativo === false ? " · inativo" : ""}</div>
+                  </div>
+                  <button onClick={() => abrirModal("vendedor", vd)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                </div>
+                <div className="text-2xl font-semibold text-slate-900 tracking-tight">{fmtUSD(total)}</div>
+                <div className="text-xs text-slate-400 mb-4">{qtd} {qtd === 1 ? "venda" : "vendas"} · {fmtUSD(recebido)} já recebido</div>
+
+                {meta > 0 ? (
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="flex items-center gap-1 text-slate-500"><Target size={12} /> Meta {fmtUSD(meta)}</span>
+                      <span className={`font-semibold ${bateu ? "text-emerald-700" : "text-slate-700"}`}>{Math.round(pct)}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${bateu ? "bg-emerald-600" : "bg-sky-500"}`} style={{ width: `${Math.min(100, pct)}%` }} />
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1.5">
+                      {bateu ? "Meta batida!" : ehMesAtual ? `Faltam ${fmtUSD(meta - total)}` : `Ficou ${fmtUSD(meta - total)} abaixo da meta`}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 mb-4">Sem meta definida.</div>
+                )}
+
+                <div className="flex items-center justify-between rounded-lg bg-violet-50 px-3 py-2">
+                  <span className="text-xs font-medium text-violet-700">Comissão do mês</span>
+                  <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }

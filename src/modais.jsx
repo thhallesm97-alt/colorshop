@@ -1,10 +1,26 @@
 import React, { useState, useRef } from "react";
-import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor } from "lucide-react";
-import { useApp, CAIXA_META, PAGAMENTOS } from "./contexto.js";
-import { fmtUSD, fmtDate, fmtHora, todayISO, uid, normalizar } from "./lib/format.js";
+import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check } from "lucide-react";
+import { useApp, CAIXA_META, PAGAMENTOS, TABELAS, precoDe } from "./contexto.js";
+import { fmtUSD, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
+import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
 import { Modal, Field, inputCls, btnPrimario, btnSecundario, Segmentado } from "./ui.jsx";
 import { CambioForm } from "./paginas.jsx";
+
+function lerLocal(k) {
+  try {
+    return window.localStorage.getItem(k);
+  } catch (e) {
+    return null;
+  }
+}
+function gravarLocal(k, v) {
+  try {
+    window.localStorage.setItem(k, v || "");
+  } catch (e) {
+    /* opcional */
+  }
+}
 
 const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
@@ -22,9 +38,14 @@ function SelectCaixa({ value, onChange }) {
 }
 
 export function VendaModal() {
-  const { clientes, estoque, registrarVenda, fecharModal } = useApp();
+  const { clientes, estoque, vendedores, registrarVenda, fecharModal } = useApp();
   const disponiveis = estoque.filter((i) => i.qtd > 0);
+  const ativos = vendedores.filter((v) => v.ativo !== false);
   const [clienteId, setClienteId] = useState("");
+  const [vendedorId, setVendedorId] = useState(() => {
+    const ultimo = lerLocal("indufarma-ultimo-vendedor");
+    return ativos.some((v) => v.id === ultimo) ? ultimo : "";
+  });
   const [itemId, setItemId] = useState(disponiveis[0]?.id || "");
   const [qtd, setQtd] = useState(1);
   const [tipoVenda, setTipoVenda] = useState("Varejo");
@@ -39,7 +60,7 @@ export function VendaModal() {
   const item = estoque.find((i) => i.id === itemId);
   const jaNoCarrinho = carrinho.filter((l) => l.itemId === itemId).reduce((s, l) => s + l.qtd, 0);
   const disponivel = item ? item.qtd - jaNoCarrinho : 0;
-  const precoUnit = item ? (tipoVenda === "Atacado" ? item.atacado : item.varejo) : 0;
+  const precoUnit = precoDe(item, tipoVenda);
   const total = carrinho.reduce((s, l) => s + l.precoUnit * l.qtd, 0);
   const podeAdicionar = item && qtd >= 1 && Number.isInteger(qtd) && qtd <= disponivel;
 
@@ -52,23 +73,43 @@ export function VendaModal() {
   function finalizar() {
     const e = registrarVenda({
       clienteId,
+      vendedorId,
       itens: carrinho.map((l) => ({ itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda })),
       pagamento,
       condicao,
     });
     if (e) setErro(e);
-    else fecharModal();
+    else {
+      gravarLocal("indufarma-ultimo-vendedor", vendedorId);
+      fecharModal();
+    }
   }
 
   return (
     <Modal title="Nova venda" onClose={fecharModal} wide>
       <Erro>{erro}</Erro>
-      <Field label="Cliente">
-        <select className={inputCls} value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-          <option value="">Consumidor (sem cadastro)</option>
-          {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </select>
-      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Cliente">
+          <select
+            className={inputCls}
+            value={clienteId}
+            onChange={(e) => {
+              setClienteId(e.target.value);
+              const c = clientes.find((x) => x.id === e.target.value);
+              setTipoVenda(c?.tabela || "Varejo");
+            }}
+          >
+            <option value="">Consumidor (sem cadastro)</option>
+            {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </Field>
+        <Field label="Vendedor">
+          <select className={inputCls} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
+            <option value="">Sem vendedor</option>
+            {ativos.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </select>
+        </Field>
+      </div>
 
       <div className="border border-slate-200 rounded-xl p-4 mb-4 bg-slate-50">
         <div className="text-xs font-semibold text-slate-600 mb-3">Adicionar produto</div>
@@ -87,10 +128,10 @@ export function VendaModal() {
                 {opcoes.map((i) => <option key={i.id} value={i.id}>{i.nome} ({i.qtd} disp.)</option>)}
               </select>
             </Field>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Tipo de venda">
-                <Segmentado valor={tipoVenda} onChange={setTipoVenda} opcoes={[{ valor: "Varejo", label: "Varejo" }, { valor: "Atacado", label: "Atacado" }]} />
-              </Field>
+            <Field label="Tabela de preço">
+              <Segmentado valor={tipoVenda} onChange={setTipoVenda} opcoes={TABELAS} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
               <Field label={`Quantidade (${Math.max(0, disponivel)} disp.)`}>
                 <input type="number" min="1" step="1" max={disponivel} className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
               </Field>
@@ -161,19 +202,20 @@ export function CompraModal() {
   const [custo, setCusto] = useState(0);
   const [varejo, setVarejo] = useState(0);
   const [atacado, setAtacado] = useState(0);
+  const [lojista, setLojista] = useState(0);
   const [pagamento, setPagamento] = useState("PIX");
   const [carrinho, setCarrinho] = useState([]);
 
   const nomeTrim = nome.trim();
   const existente = nomeTrim ? estoque.find((i) => normalizar(i.nome) === normalizar(nomeTrim)) : null;
   const isNovoProduto = nomeTrim !== "" && !existente;
-  const podeAdicionar = nomeTrim !== "" && qtd > 0 && custo > 0 && (!isNovoProduto || (varejo > 0 && atacado > 0));
+  const podeAdicionar = nomeTrim !== "" && qtd > 0 && custo > 0 && (!isNovoProduto || (varejo > 0 && atacado > 0 && lojista > 0));
   const total = carrinho.reduce((s, l) => s + l.custo * l.qtd, 0);
 
   function addAoCarrinho() {
     if (!podeAdicionar) return;
-    setCarrinho((c) => [...c, { key: uid(), nome: existente ? existente.nome : nomeTrim, qtd, custo, varejo, atacado }]);
-    setNome(""); setQtd(1); setCusto(0); setVarejo(0); setAtacado(0);
+    setCarrinho((c) => [...c, { key: uid(), nome: existente ? existente.nome : nomeTrim, qtd, custo, varejo, atacado, lojista }]);
+    setNome(""); setQtd(1); setCusto(0); setVarejo(0); setAtacado(0); setLojista(0);
   }
   function finalizar() {
     if (carrinho.length === 0) return;
@@ -207,12 +249,15 @@ export function CompraModal() {
           </Field>
         </div>
         {isNovoProduto && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Preço varejo (US$) *">
               <input type="number" step="0.01" min="0" className={inputCls} value={varejo} onChange={(e) => setVarejo(n(e.target.value))} />
             </Field>
             <Field label="Preço atacado (US$) *">
               <input type="number" step="0.01" min="0" className={inputCls} value={atacado} onChange={(e) => setAtacado(n(e.target.value))} />
+            </Field>
+            <Field label="Preço lojista (US$) *">
+              <input type="number" step="0.01" min="0" className={inputCls} value={lojista} onChange={(e) => setLojista(n(e.target.value))} />
             </Field>
           </div>
         )}
@@ -303,15 +348,16 @@ export function ItemModal() {
   const [custo, setCusto] = useState(editando?.custo ?? 0);
   const [varejo, setVarejo] = useState(editando?.varejo ?? 0);
   const [atacado, setAtacado] = useState(editando?.atacado ?? 0);
+  const [lojista, setLojista] = useState(editando?.lojista ?? editando?.atacado ?? 0);
   const [min, setMin] = useState(editando?.min ?? 3);
 
   const nomeTrim = nome.trim();
   const duplicado = estoque.some((i) => i.id !== editando?.id && normalizar(i.nome) === normalizar(nomeTrim));
-  const invalid = !nomeTrim || duplicado || !(varejo > 0) || !(atacado > 0) || qtd < 0 || min < 0;
+  const invalid = !nomeTrim || duplicado || !(varejo > 0) || !(atacado > 0) || !(lojista > 0) || qtd < 0 || min < 0;
 
   function save() {
     if (invalid) return;
-    salvarItem({ nome: nomeTrim, qtd, custo, varejo, atacado, min }, editando);
+    salvarItem({ nome: nomeTrim, qtd, custo, varejo, atacado, lojista, min }, editando);
     fecharModal();
   }
 
@@ -332,17 +378,22 @@ export function ItemModal() {
       <Field label="Custo unitário (US$)">
         <input type="number" step="0.01" min="0" className={inputCls} value={custo} onChange={(e) => setCusto(n(e.target.value))} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Preço varejo (US$) *">
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Varejo (US$) *">
           <input type="number" step="0.01" min="0" className={inputCls} value={varejo} onChange={(e) => setVarejo(n(e.target.value))} />
         </Field>
-        <Field label="Preço atacado (US$) *">
+        <Field label="Atacado (US$) *">
           <input type="number" step="0.01" min="0" className={inputCls} value={atacado} onChange={(e) => setAtacado(n(e.target.value))} />
         </Field>
+        <Field label="Lojista (US$) *">
+          <input type="number" step="0.01" min="0" className={inputCls} value={lojista} onChange={(e) => setLojista(n(e.target.value))} />
+        </Field>
       </div>
-      {varejo > 0 && custo > 0 && (
+      {custo > 0 && (varejo > 0 || atacado > 0 || lojista > 0) && (
         <div className="text-xs text-slate-500 -mt-2 mb-4">
-          Margem no varejo: {Math.round(((varejo - custo) / varejo) * 100)}% · no atacado: {atacado > 0 ? Math.round(((atacado - custo) / atacado) * 100) : 0}%
+          Margem: {[["varejo", varejo], ["atacado", atacado], ["lojista", lojista]]
+            .map(([l, v]) => `${l} ${v > 0 ? Math.round(((v - custo) / v) * 100) : 0}%`)
+            .join(" · ")}
         </div>
       )}
       {isEdit && (
@@ -436,6 +487,7 @@ export function PessoaModal({ tipo }) {
   const [nome, setNome] = useState(editando?.nome || "");
   const [contato, setContato] = useState(editando?.contato || "");
   const [obs, setObs] = useState(editando?.obs || "");
+  const [tabela, setTabela] = useState(editando?.tabela || "Varejo");
   const titulo = (editando ? "Editar " : "Novo ") + (isCliente ? "cliente" : "fornecedor");
   return (
     <Modal title={titulo} onClose={fecharModal}>
@@ -443,9 +495,19 @@ export function PessoaModal({ tipo }) {
       <Field label="WhatsApp / telefone" hint="Com código do país, ex.: +595 981 234 567. Usado para enviar mensagens pelo WhatsApp.">
         <input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" />
       </Field>
+      {isCliente && (
+        <Field label="Tabela de preço do cliente" hint="Usada nas vendas e na lista de preços enviada a ele.">
+          <Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} />
+        </Field>
+      )}
       <Field label="Observação"><input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Opcional" /></Field>
       <button
-        onClick={() => { salvarPessoa(tipo, { nome: nome.trim(), contato: contato.trim(), obs: obs.trim() }, editando); fecharModal(); }}
+        onClick={() => {
+          const dados = { nome: nome.trim(), contato: contato.trim(), obs: obs.trim() };
+          if (isCliente) dados.tabela = tabela;
+          salvarPessoa(tipo, dados, editando);
+          fecharModal();
+        }}
         disabled={!nome.trim()}
         className={btnPrimario + " w-full"}
       >
@@ -575,6 +637,237 @@ export function DadosModal() {
           >
             <Monitor size={14} /> Instalar no computador
           </button>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+export function VendedorModal() {
+  const { editando, salvarVendedor, excluirVendedor, fecharModal } = useApp();
+  const isEdit = !!editando;
+  const [nome, setNome] = useState(editando?.nome || "");
+  const [contato, setContato] = useState(editando?.contato || "");
+  const [comissao, setComissao] = useState(editando?.comissao ?? 5);
+  const [meta, setMeta] = useState(editando?.meta ?? 0);
+  const [ativo, setAtivo] = useState(editando?.ativo !== false);
+  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && meta >= 0;
+  return (
+    <Modal title={isEdit ? "Editar vendedor" : "Novo vendedor"} onClose={fecharModal}>
+      <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
+      <Field label="WhatsApp / telefone"><input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Comissão (%)" hint="Sobre o valor de cada venda dele.">
+          <input type="number" step="0.1" min="0" max="100" className={inputCls} value={comissao} onChange={(e) => setComissao(n(e.target.value))} />
+        </Field>
+        <Field label="Meta do mês (US$)" hint="Deixe 0 para não ter meta.">
+          <input type="number" step="1" min="0" className={inputCls} value={meta} onChange={(e) => setMeta(n(e.target.value))} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
+        <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
+        Ativo (aparece na hora de registrar a venda)
+      </label>
+      {isEdit && (
+        <button onClick={() => excluirVendedor(editando) && fecharModal()} className="w-full mb-3 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg py-2 text-sm font-medium">
+          Excluir vendedor
+        </button>
+      )}
+      <button
+        disabled={!valido}
+        onClick={() => { salvarVendedor({ nome: nome.trim(), contato: contato.trim(), comissao, meta, ativo }, editando); fecharModal(); }}
+        className={btnPrimario + " w-full"}
+      >
+        Salvar
+      </button>
+    </Modal>
+  );
+}
+
+// Monta a lista de preços e abre o WhatsApp com ela já escrita.
+export function ListaPrecosModal() {
+  const { editando: cliente, estoque, clientes, fecharModal } = useApp();
+  const [clienteId, setClienteId] = useState(cliente?.id || "");
+  const escolhido = clientes.find((c) => c.id === clienteId);
+  const [tabela, setTabela] = useState(cliente?.tabela || "Varejo");
+  const [soComEstoque, setSoComEstoque] = useState(true);
+  const [filtro, setFiltro] = useState("");
+  const [desmarcados, setDesmarcados] = useState(() => new Set());
+  const [copiado, setCopiado] = useState(false);
+  const [texto, setTexto] = useState(null); // null = gerado automaticamente
+
+  const termo = normalizar(filtro);
+  const candidatos = estoque.filter((i) => !soComEstoque || i.qtd > 0);
+  const visiveis = candidatos.filter((i) => !termo || normalizar(i.nome).includes(termo));
+  const selecionados = candidatos.filter((i) => !desmarcados.has(i.id));
+
+  const gerado = [
+    `*Indufarma · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
+    fmtDate(todayISO()),
+    "",
+    ...selecionados.map((i) => `• ${i.nome}: ${fmtUSD(precoDe(i, tabela))}`),
+    "",
+    "Valores em dólar, sujeitos a alteração. Para fazer seu pedido, é só responder esta mensagem.",
+  ].join("\n");
+  const mensagem = texto ?? (escolhido ? `Olá, ${escolhido.nome}! ` : "") + gerado;
+  const link = linkWhatsApp(escolhido?.contato, mensagem);
+
+  function alternar(id) {
+    setTexto(null);
+    setDesmarcados((d) => {
+      const novo = new Set(d);
+      novo.has(id) ? novo.delete(id) : novo.add(id);
+      return novo;
+    });
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(mensagem);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch (e) {
+      document.getElementById("texto-lista")?.select();
+    }
+  }
+
+  return (
+    <Modal title="Enviar lista de preços" onClose={fecharModal} wide>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Cliente">
+          <select
+            className={inputCls}
+            value={clienteId}
+            onChange={(e) => {
+              setClienteId(e.target.value);
+              const c = clientes.find((x) => x.id === e.target.value);
+              if (c?.tabela) setTabela(c.tabela);
+              setTexto(null);
+            }}
+          >
+            <option value="">Escolher no WhatsApp</option>
+            {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </Field>
+        <Field label="Tabela de preço">
+          <Segmentado valor={tabela} onChange={(v) => { setTabela(v); setTexto(null); }} opcoes={TABELAS} />
+        </Field>
+      </div>
+
+      <div className="border border-slate-200 rounded-xl mb-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2 border-b border-slate-100">
+          <input className="text-sm border border-slate-200 rounded-md px-2.5 py-1.5 w-48 focus:outline-none focus:ring-2 focus:ring-emerald-600" placeholder="Filtrar produtos..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
+          <div className="flex items-center gap-3 text-xs text-slate-600">
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={soComEstoque} onChange={(e) => { setSoComEstoque(e.target.checked); setTexto(null); }} className="rounded border-slate-300 text-emerald-700" />
+              Só com estoque
+            </label>
+            <button className="text-emerald-700 hover:underline" onClick={() => { setDesmarcados(new Set()); setTexto(null); }}>Marcar todos</button>
+            <button className="text-emerald-700 hover:underline" onClick={() => { setDesmarcados(new Set(candidatos.map((i) => i.id))); setTexto(null); }}>Desmarcar</button>
+          </div>
+        </div>
+        <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+          {visiveis.map((i) => (
+            <label key={i.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
+              <span className="flex items-center gap-2 min-w-0">
+                <input type="checkbox" checked={!desmarcados.has(i.id)} onChange={() => alternar(i.id)} className="rounded border-slate-300 text-emerald-700" />
+                <span className="truncate text-slate-800">{i.nome}</span>
+              </span>
+              <span className="font-medium text-slate-900 shrink-0">{fmtUSD(precoDe(i, tabela))}</span>
+            </label>
+          ))}
+          {visiveis.length === 0 && <div className="px-3 py-6 text-center text-sm text-slate-400">Nenhum produto.</div>}
+        </div>
+        <div className="px-3 py-2 text-xs text-slate-400 border-t border-slate-100">{selecionados.length} produtos na lista</div>
+      </div>
+
+      <Field label="Mensagem" hint="Você pode editar o texto antes de enviar.">
+        <textarea id="texto-lista" rows={6} className={inputCls + " font-mono text-xs"} value={mensagem} onChange={(e) => setTexto(e.target.value)} />
+      </Field>
+
+      {escolhido && !link && <div className="text-xs text-amber-700 mb-3">Este cliente não tem WhatsApp cadastrado. Você pode copiar o texto ou escolher o contato no WhatsApp.</div>}
+      <div className="flex gap-2">
+        <a
+          href={link || linkWhatsApp(null, mensagem)}
+          target="_blank"
+          rel="noreferrer"
+          className={btnPrimario + " flex-1" + (selecionados.length === 0 ? " pointer-events-none opacity-40" : "")}
+        >
+          <MessageCircle size={15} /> Abrir no WhatsApp
+        </a>
+        <button onClick={copiar} className={btnSecundario}>
+          {copiado ? <Check size={15} /> : <Copy size={15} />} {copiado ? "Copiado" : "Copiar texto"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const daquiA = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return isoLocal(d);
+};
+// Próximo dia da semana (0 = domingo), sempre depois de hoje.
+const proximoDia = (dow) => {
+  const d = new Date();
+  const dif = ((dow - d.getDay() + 7) % 7) || 7;
+  d.setDate(d.getDate() + dif);
+  return isoLocal(d);
+};
+
+// Agenda o próximo contato com o cliente (ex.: "vai fazer pedido na terça").
+export function AgendarContatoModal() {
+  const { editando: cliente, agendarContato, fecharModal } = useApp();
+  const [data, setData] = useState(cliente?.proximoContato || daquiA(7));
+  const [nota, setNota] = useState(cliente?.notaContato || "");
+  if (!cliente) return null;
+  const atalhos = [
+    { label: "Amanhã", data: daquiA(1) },
+    { label: "Em 3 dias", data: daquiA(3) },
+    { label: "Em 1 semana", data: daquiA(7) },
+    { label: "Em 15 dias", data: daquiA(15) },
+  ];
+  const valido = data && data >= todayISO();
+  return (
+    <Modal title={`Próximo contato: ${cliente.nome}`} onClose={fecharModal}>
+      {cliente.ultimoContato === todayISO() && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Contato de hoje registrado. Quer agendar um lembrete para falar com o cliente de novo?
+        </div>
+      )}
+      <Field label="Avisar em">
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {atalhos.map((a) => (
+            <button key={a.label} type="button" onClick={() => setData(a.data)} className={`px-2.5 py-1 text-xs font-medium rounded-md border ${data === a.data ? "bg-emerald-700 border-emerald-700 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {[1, 2, 3, 4, 5, 6].map((dow) => {
+            const d = proximoDia(dow);
+            return (
+              <button key={dow} type="button" onClick={() => setData(d)} title={fmtDate(d)} className={`px-2.5 py-1 text-xs font-medium rounded-md border ${data === d ? "bg-emerald-700 border-emerald-700 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                {DIAS_SEMANA[dow]}
+              </button>
+            );
+          })}
+        </div>
+        <input type="date" min={todayISO()} className={inputCls} value={data} onChange={(e) => setData(e.target.value)} />
+      </Field>
+      <Field label="Anotação" hint="Aparece junto com o lembrete.">
+        <input className={inputCls} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ex.: disse que faz o pedido na terça" />
+      </Field>
+      <div className="flex gap-2">
+        <button disabled={!valido} onClick={() => { agendarContato(cliente.id, data, nota.trim()); fecharModal(); }} className={btnPrimario + " flex-1"}>
+          Agendar lembrete
+        </button>
+        {cliente.proximoContato ? (
+          <button onClick={() => { agendarContato(cliente.id, null, ""); fecharModal(); }} className={btnSecundario}>Remover lembrete</button>
+        ) : (
+          <button onClick={fecharModal} className={btnSecundario}>Não agendar</button>
         )}
       </div>
     </Modal>

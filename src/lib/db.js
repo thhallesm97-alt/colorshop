@@ -6,7 +6,7 @@
 // venda, um cliente...) é sincronizado separadamente; se o mesmo registro for alterado nos
 // dois computadores, vale a alteração mais recente.
 
-import { createStore, entries, setMany, set } from "idb-keyval";
+import { createStore, entries, setMany, set, clear } from "idb-keyval";
 import { createClient } from "@supabase/supabase-js";
 
 // Ordem em que cada coleção é listada: "desc" = mais recente primeiro.
@@ -18,6 +18,7 @@ export const COLECOES = {
   clientes: "asc",
   fornecedores: "asc",
   contas: "asc",
+  vendedores: "asc",
   config: "asc",
 };
 
@@ -71,6 +72,13 @@ export async function abrir() {
   }
   iniciarNuvem();
   return { vazio: registros.size === 0 };
+}
+
+// Apaga tudo deste computador (usado só para reiniciar a demonstração).
+export async function limpar() {
+  await clear(store);
+  registros.clear();
+  meta = { cursor: 0 };
 }
 
 export function listar(col) {

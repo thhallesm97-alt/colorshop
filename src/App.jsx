@@ -1,21 +1,23 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutGrid, ArrowUpRight, ArrowDownLeft, Wallet, Users, Truck, RefreshCw, Plus, Search,
-  Home, Loader2, Receipt, TrendingUp, Menu, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
+  Home, Loader2, Receipt, TrendingUp, Menu, BadgeDollarSign, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
 } from "lucide-react";
 
-import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento } from "./contexto.js";
-import { fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses } from "./lib/format.js";
+import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO } from "./contexto.js";
+import { fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses, diasAtras } from "./lib/format.js";
 import * as db from "./lib/db.js";
 import { lerDadosAntigosDoNavegador, normalizar } from "./lib/migracao.js";
 import { btnPrimario } from "./ui.jsx";
 import {
-  VisaoGeral, EstoquePage, VendasPage, MaisVendidosPage, ComprasPage, CaixaPage, ContasPage, PessoasPage, CambioPage,
+  VisaoGeral, EstoquePage, VendasPage, MaisVendidosPage, ComprasPage, CaixaPage, ContasPage, PessoasPage, CambioPage, VendedoresPage,
 } from "./paginas.jsx";
 import {
   VendaModal, CompraModal, MovimentoModal, ItemModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
-  ReceberVendaModal, DadosModal,
+  ReceberVendaModal, DadosModal, VendedorModal, ListaPrecosModal, AgendarContatoModal,
 } from "./modais.jsx";
+
+
 
 const NAV = [
   { key: "visao", label: "Visão geral", icon: Home },
@@ -26,15 +28,27 @@ const NAV = [
   { key: "caixa", label: "Caixa", icon: Wallet },
   { key: "contas", label: "Contas a pagar", icon: Receipt },
   { key: "clientes", label: "Clientes", icon: Users },
+  { key: "vendedores", label: "Vendedores", icon: BadgeDollarSign },
   { key: "fornecedores", label: "Fornecedores", icon: Truck },
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
+
+const VERSAO_DEMO = "3";
+const lerVersaoDemo = () => {
+  try { return localStorage.getItem("indufarma-demo"); } catch (e) { return null; }
+};
 
 // Carrega o banco uma única vez, mesmo que o React monte o componente duas vezes.
 let carregamento = null;
 function carregarBanco() {
   return (carregamento ||= (async () => {
-    const { vazio } = await db.abrir();
+    let { vazio } = await db.abrir();
+    // A demonstração recomeça com os exemplos novos quando eles mudam.
+    if (import.meta.env.VITE_DEMO && lerVersaoDemo() !== VERSAO_DEMO) {
+      await db.limpar();
+      vazio = true;
+      try { localStorage.setItem("indufarma-demo", VERSAO_DEMO); } catch (e) { /* opcional */ }
+    }
     if (vazio) {
       const antigos = lerDadosAntigosDoNavegador();
       if (antigos) await db.importar(normalizar(antigos));
@@ -63,6 +77,7 @@ export default function IndufarmaApp() {
   const [movimentos, setMovimentos] = useState([]);
   const [cambio, setCambio] = useState(CAMBIO_PADRAO);
   const [contas, setContas] = useState([]);
+  const [vendedores, setVendedores] = useState([]);
 
   const [modal, setModal] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -91,6 +106,7 @@ export default function IndufarmaApp() {
     setFornecedores(db.listar("fornecedores"));
     setMovimentos(db.listar("movimentos"));
     setContas(db.listar("contas"));
+    setVendedores(db.listar("vendedores"));
     setCambio(lerCambio());
   }, []);
 
@@ -118,7 +134,7 @@ export default function IndufarmaApp() {
   useEffect(() => {
     const setters = {
       estoque: setEstoqueBase, vendas: setVendas, compras: setCompras, clientes: setClientes,
-      fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas,
+      fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas, vendedores: setVendedores,
     };
     db.aoReceberDaNuvem((cols) => {
       cols.forEach((col) => {
@@ -146,6 +162,7 @@ export default function IndufarmaApp() {
   useEffect(() => { if (loaded) db.gravar("fornecedores", fornecedores); }, [fornecedores, loaded]);
   useEffect(() => { if (loaded) db.gravar("movimentos", movimentos); }, [movimentos, loaded]);
   useEffect(() => { if (loaded) db.gravar("contas", contas); }, [contas, loaded]);
+  useEffect(() => { if (loaded) db.gravar("vendedores", vendedores); }, [vendedores, loaded]);
   useEffect(() => { if (loaded) db.gravar("config", [cambio]); }, [cambio, loaded]);
 
   // ---- botão "Instalar no computador" ----
@@ -204,13 +221,45 @@ export default function IndufarmaApp() {
     [contasPendentes, hoje]
   );
 
+  // Clientes para contatar hoje: os que têm retorno agendado para hoje (ou antes) e os que
+  // já compraram, mas não fazem pedido há mais de DIAS_SEM_PEDIDO dias e não receberam
+  // mensagem nesse período. Quem tem retorno agendado para o futuro fica de fora até lá.
+  const clientesSemPedido = useMemo(() => {
+    const limite = diasAtras(DIAS_SEM_PEDIDO);
+    const ultima = {};
+    for (const v of vendas) if (v.clienteId && (!ultima[v.clienteId] || v.data > ultima[v.clienteId])) ultima[v.clienteId] = v.data;
+    const out = [];
+    for (const c of clientes) {
+      const ultimaCompra = ultima[c.id] || null;
+      if (c.proximoContato) {
+        if (c.proximoContato <= hoje) out.push({ ...c, ultimaCompra, motivo: "retorno" });
+      } else if (ultimaCompra && ultimaCompra < limite && !(c.ultimoContato && c.ultimoContato >= limite)) {
+        out.push({ ...c, ultimaCompra, motivo: "semPedido" });
+      }
+    }
+    return out.sort((a, b) =>
+      a.motivo !== b.motivo ? (a.motivo === "retorno" ? -1 : 1) : String(a.proximoContato || a.ultimaCompra).localeCompare(String(b.proximoContato || b.ultimaCompra))
+    );
+  }, [clientes, vendas, hoje]);
+
   // ---- ações ----
+  // Depois de mandar mensagem, marca o contato e abre a tela para agendar o próximo.
+  function registrarContato(clienteId) {
+    const c = clientes.find((x) => x.id === clienteId);
+    setClientes((cs) => cs.map((x) => (x.id === clienteId ? { ...x, ultimoContato: todayISO(), proximoContato: null, notaContato: "" } : x)));
+    if (c) abrirModal("agendar", { ...c, ultimoContato: todayISO(), proximoContato: null, notaContato: "" });
+  }
+
+  function agendarContato(clienteId, data, nota) {
+    setClientes((cs) => cs.map((x) => (x.id === clienteId ? { ...x, proximoContato: data || null, notaContato: data ? nota : "" } : x)));
+  }
+
   function addMovimento(caixaKey, tipo, valor, descricao) {
     setMovimentos((m) => [{ id: uid(), caixa: caixaKey, tipo, valor: Number(valor), descricao, data: todayISO(), ts: Date.now() }, ...m]);
   }
 
   // Devolve uma mensagem de erro, ou null se a venda foi registrada.
-  function registrarVenda({ clienteId, itens, pagamento, condicao }) {
+  function registrarVenda({ clienteId, vendedorId, itens, pagamento, condicao }) {
     if (!itens || itens.length === 0) return "Adicione pelo menos um produto.";
     const qtdPorItem = {};
     itens.forEach((l) => (qtdPorItem[l.itemId] = (qtdPorItem[l.itemId] || 0) + l.qtd));
@@ -220,16 +269,20 @@ export default function IndufarmaApp() {
       if (qtdPorItem[itemId] > s.qtd) return `Estoque insuficiente de ${s.nome} (${s.qtd} disponíveis).`;
     }
     const cliente = clientes.find((c) => c.id === clienteId);
+    const vendedor = vendedores.find((x) => x.id === vendedorId);
     const linhas = itens.map((l) => {
       const item = estoque.find((i) => i.id === l.itemId);
-      const precoUnit = l.tipoVenda === "Atacado" ? item.atacado : item.varejo;
+      const precoUnit = precoDe(item, l.tipoVenda);
       return { itemId: l.itemId, itemNome: item.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit, subtotal: precoUnit * l.qtd };
     });
     const valor = linhas.reduce((s, l) => s + l.subtotal, 0);
     const numero = vendas.reduce((m, v) => Math.max(m, Number(v.numero) || 0), 0) + 1;
+    // Cliente que fez pedido não precisa mais do lembrete de retorno.
+    if (cliente?.proximoContato) setClientes((cs) => cs.map((x) => (x.id === cliente.id ? { ...x, proximoContato: null, notaContato: "" } : x)));
     setVendas((v) => [
       {
-        id: uid(), numero, clienteId, clienteNome: cliente ? cliente.nome : "Sem nome", itens: linhas, valor, pagamento, condicao,
+        id: uid(), numero, clienteId, clienteNome: cliente ? cliente.nome : "Sem nome",
+        vendedorId: vendedor ? vendedor.id : "", vendedorNome: vendedor ? vendedor.nome : "", itens: linhas, valor, pagamento, condicao,
         status: condicao === "À vista" ? "Pago" : "Pendente", data: todayISO(), ts: Date.now(),
       },
       ...v,
@@ -248,7 +301,7 @@ export default function IndufarmaApp() {
         base = base.map((i) => (i.id === existente.id ? { ...i, custo: l.custo } : i));
         return { itemId: existente.id, nome: existente.nome, qtd: l.qtd, custo: l.custo, subtotal: l.custo * l.qtd };
       }
-      const novo = { id: uid(), nome: l.nome, qtd: 0, baseEm: 0, custo: l.custo, varejo: l.varejo || l.custo * 1.3, atacado: l.atacado || l.custo * 1.15, min: 3 };
+      const novo = { id: uid(), nome: l.nome, qtd: 0, baseEm: 0, custo: l.custo, varejo: l.varejo || l.custo * 1.3, atacado: l.atacado || l.custo * 1.15, lojista: l.lojista || l.atacado || l.custo * 1.1, min: 3 };
       base = [...base, novo];
       return { itemId: novo.id, nome: novo.nome, qtd: l.qtd, custo: l.custo, subtotal: l.custo * l.qtd };
     });
@@ -270,7 +323,7 @@ export default function IndufarmaApp() {
       setEstoqueBase((e) =>
         e.map((x) => {
           if (x.id !== original.id) return x;
-          const novo = { ...x, nome: dados.nome, custo: dados.custo, varejo: dados.varejo, atacado: dados.atacado, min: dados.min };
+          const novo = { ...x, nome: dados.nome, custo: dados.custo, varejo: dados.varejo, atacado: dados.atacado, lojista: dados.lojista, min: dados.min };
           // Só reinicia a contagem se a quantidade foi alterada à mão.
           if (!atual || atual.qtd !== dados.qtd) Object.assign(novo, { qtd: dados.qtd, baseEm: Date.now() });
           return novo;
@@ -333,10 +386,21 @@ export default function IndufarmaApp() {
     set((d) => d.filter((x) => x.id !== pessoa.id));
   }
 
+  function salvarVendedor(dados, original) {
+    if (original) setVendedores((d) => d.map((p) => (p.id === original.id ? { ...p, ...dados } : p)));
+    else setVendedores((d) => [...d, { id: uid(), ativo: true, ...dados }]);
+  }
+
+  function excluirVendedor(v) {
+    if (!window.confirm(`Excluir o vendedor "${v.nome}"? As vendas dele continuam registradas.`)) return false;
+    setVendedores((d) => d.filter((x) => x.id !== v.id));
+    return true;
+  }
+
   function baixarBackup() {
     const data = {
       app: "indufarma", versao: 2, exportadoEm: new Date().toISOString(),
-      estoque: estoqueBase, vendas, compras, clientes, fornecedores, movimentos, contas, cambio,
+      estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, movimentos, contas, cambio,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -358,7 +422,7 @@ export default function IndufarmaApp() {
     // Grava antes o que está na tela, para a importação não ser desfeita.
     db.gravar("estoque", estoqueBase); db.gravar("vendas", vendas); db.gravar("compras", compras);
     db.gravar("clientes", clientes); db.gravar("fornecedores", fornecedores); db.gravar("movimentos", movimentos);
-    db.gravar("contas", contas); db.gravar("config", [cambio]);
+    db.gravar("contas", contas); db.gravar("vendedores", vendedores); db.gravar("config", [cambio]);
     const n = await db.importar(normalizar(bruto));
     recarregarTudo();
     return n;
@@ -376,12 +440,12 @@ export default function IndufarmaApp() {
 
   const ctx = {
     page, setPage: irPara, busca, setBusca,
-    estoque, estoqueBase, vendas, compras, clientes, fornecedores, movimentos, caixas, cambio, setCambio, contas,
+    estoque, estoqueBase, vendas, compras, clientes, fornecedores, vendedores, movimentos, caixas, cambio, setCambio, contas,
     vendasHoje, vendasDoDia, aReceber, vendasACobrar, valorEstoque, unidadesEstoque, estoqueBaixo,
-    contasPendentes, totalContasPendentes, contasVencendo,
+    contasPendentes, totalContasPendentes, contasVencendo, clientesSemPedido, registrarContato, agendarContato,
     abrirModal, fecharModal, editando,
     addMovimento, registrarVenda, registrarCompra, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
-    duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, baixarBackup, restaurarBackup,
+    duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, baixarBackup, restaurarBackup,
     sync, instalar, setInstalar,
   };
 
@@ -417,10 +481,11 @@ export default function IndufarmaApp() {
     contas: <ContasPage />,
     clientes: <PessoasPage tipo="cliente" />,
     fornecedores: <PessoasPage tipo="fornecedor" />,
+    vendedores: <VendedoresPage />,
     cambio: <CambioPage />,
   };
 
-  const contadores = { estoque: estoqueBaixo.length, contas: contasVencendo.length };
+  const contadores = { estoque: estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length };
 
   const sidebar = (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full">
@@ -541,6 +606,9 @@ export default function IndufarmaApp() {
         {modal === "pagarConta" && <PagarContaModal />}
         {modal === "receberVenda" && <ReceberVendaModal />}
         {modal === "dados" && <DadosModal />}
+        {modal === "vendedor" && <VendedorModal />}
+        {modal === "listaPrecos" && <ListaPrecosModal />}
+        {modal === "agendar" && <AgendarContatoModal />}
       </div>
     </AppCtx.Provider>
   );
