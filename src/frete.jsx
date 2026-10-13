@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Trash2, Pencil, MessageCircle, Copy, Check, Truck, FileText, Send, PackageCheck, Clock } from "lucide-react";
-import { useApp, TABELAS, PAGAMENTOS, precoDe, produtoCombina, ehDeFornecedor } from "./contexto.js";
+import { useApp, TABELAS, PAGAMENTOS, CAIXA_META, precoDe, produtoCombina, ehDeFornecedor } from "./contexto.js";
 import { ProdutoAvulso, CampoVendedor } from "./modais.jsx";
 import { fmtUSD, fmtDate, todayISO, isoLocal, parseISO, normalizar, uid } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
@@ -168,6 +168,7 @@ export function FretePage() {
   const cotacoes = orcamentos.filter((o) => o.status === "Aberto" && o.frete?.precisa);
   const aEnviar = vendas.filter((v) => v.frete?.status === "A enviar").length;
   const emTransito = vendas.filter((v) => v.frete?.status === "Enviado").length;
+  const aPagarFreteiros = vendas.filter((v) => v.frete && !v.frete.pagoFreteiroEm).reduce((s, v) => s + n(v.frete.valor), 0);
 
   return (
     <>
@@ -178,6 +179,7 @@ export function FretePage() {
           opcoes={[
             { valor: "entregas", label: `Entregas (${aEnviar + emTransito})` },
             { valor: "transito", label: `Em trânsito (${emTransito})` },
+            ...(ehVendedor ? [] : [{ valor: "pagar", label: `Pagar freteiros (${fmtUSD(aPagarFreteiros)})` }]),
             { valor: "cotacoes", label: `Cotações (${cotacoes.length})` },
             { valor: "freteiros", label: `Freteiros (${freteiros.length})` },
           ]}
@@ -288,6 +290,7 @@ export function FretePage() {
       )}
 
       {aba === "transito" && <EmTransito />}
+      {aba === "pagar" && !ehVendedor && <PagarFreteiros />}
 
       {aba === "freteiros" && (
         <TableShell title="Freteiros" sub="Quem recebe os pedidos de cotação" action={!ehVendedor && <button onClick={() => abrirModal("freteiro")} className={btnPrimario}><Plus size={14} /> Novo freteiro</button>}>
@@ -429,6 +432,129 @@ function EmTransito() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Fretes que o cliente paga à farmácia e a farmácia repassa ao freteiro.
+function PagarFreteiros() {
+  const { vendas, pagarFreteiro } = useApp();
+  const [verPagos, setVerPagos] = useState(false);
+  const comFrete = vendas.filter((v) => v.frete && n(v.frete.valor) > 0);
+  const pendentes = comFrete.filter((v) => !v.frete.pagoFreteiroEm);
+  const grupos = new Map();
+  for (const v of pendentes) {
+    const chave = v.frete.freteiroId || v.frete.freteiroNome || "?";
+    const g = grupos.get(chave) || { chave, nome: v.frete.freteiroNome || "Freteiro", vendas: [] };
+    g.vendas.push(v);
+    grupos.set(chave, g);
+  }
+  const pagos = comFrete.filter((v) => v.frete.pagoFreteiroEm).sort((a, b) => b.frete.pagoFreteiroEm.localeCompare(a.frete.pagoFreteiroEm));
+
+  return (
+    <div className="space-y-4">
+      {grupos.size === 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-10 text-center text-sm text-slate-400">
+          Nenhum frete para pagar. Os fretes das vendas aparecem aqui até você registrar o pagamento ao freteiro.
+        </div>
+      )}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {[...grupos.values()].map((g) => <GrupoPagarFreteiro key={g.chave} g={g} pagar={pagarFreteiro} />)}
+      </div>
+      {pagos.length > 0 && (
+        <div>
+          <button onClick={() => setVerPagos((x) => !x)} className="text-xs font-medium text-emerald-700 hover:underline">
+            {verPagos ? "Esconder" : "Ver"} fretes já pagos ({pagos.length})
+          </button>
+          {verPagos && (
+            <div className="mt-3 bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50"><Th>Venda</Th><Th>Freteiro</Th><Th right>Frete</Th><Th>Pago em</Th></tr>
+                </thead>
+                <tbody>
+                  {pagos.map((v) => (
+                    <tr key={v.id} className={linhaCls}>
+                      <Td><span className="font-medium text-slate-900">#{v.numero}</span> <span className="text-slate-500">· {v.clienteNome}</span></Td>
+                      <Td className="text-slate-600">{v.frete.freteiroNome}</Td>
+                      <Td right className="text-slate-700 whitespace-nowrap">{fmtUSD(v.frete.valor)}</Td>
+                      <Td className="text-slate-600">{fmtDate(v.frete.pagoFreteiroEm)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GrupoPagarFreteiro({ g, pagar }) {
+  const [marcados, setMarcados] = useState(() => new Set(g.vendas.map((v) => v.id)));
+  const [caixa, setCaixa] = useState("dolar");
+  const [confirmando, setConfirmando] = useState(false);
+  const selecionadas = g.vendas.filter((v) => marcados.has(v.id));
+  const total = selecionadas.reduce((s, v) => s + n(v.frete.valor), 0);
+  const totalDevido = g.vendas.reduce((s, v) => s + n(v.frete.valor), 0);
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-100">
+        <div>
+          <div className="text-sm font-semibold text-slate-900 flex items-center gap-2"><Truck size={15} className="text-slate-400" /> {g.nome}</div>
+          <div className="text-xs text-slate-400">{g.vendas.length} {g.vendas.length === 1 ? "frete" : "fretes"} a pagar</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[11px] text-slate-400">Você deve</div>
+          <div className="text-lg font-semibold text-slate-900">{fmtUSD(totalDevido)}</div>
+        </div>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {g.vendas.map((v) => (
+          <li key={v.id} className="px-5 py-2.5 text-sm">
+            <label className="flex items-center justify-between gap-3 cursor-pointer">
+              <span className="flex items-center gap-2 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={marcados.has(v.id)}
+                  onChange={() => setMarcados((m) => { const x = new Set(m); x.has(v.id) ? x.delete(v.id) : x.add(v.id); return x; })}
+                  className="rounded border-slate-300 text-emerald-700"
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-slate-900">#{v.numero}</span> <span className="text-slate-600">· {v.clienteNome}</span>
+                  <span className="block text-xs text-slate-400">
+                    {v.frete.status === "Entregue" ? "Entregue" : v.frete.status === "Enviado" ? "A caminho" : "Ainda não enviado"}
+                    {" · "}
+                    {v.status === "Pago" ? <span className="text-emerald-700">cliente já pagou</span> : <span className="text-amber-700">cliente ainda não pagou</span>}
+                  </span>
+                </span>
+              </span>
+              <span className="font-medium text-slate-900 shrink-0">{fmtUSD(v.frete.valor)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-end gap-2 flex-wrap px-5 py-3 bg-slate-50 border-t border-slate-100">
+        <div>
+          <label className="block text-[11px] text-slate-500 mb-1">Pagar com</label>
+          <select value={caixa} onChange={(e) => setCaixa(e.target.value)} className={inputCls + " py-1.5 w-40"} aria-label="Pagar com">
+            {Object.keys(CAIXA_META).map((k) => <option key={k} value={k}>{CAIXA_META[k].label}</option>)}
+          </select>
+        </div>
+        {confirmando ? (
+          <>
+            <button onClick={() => { pagar(selecionadas.map((v) => v.id), caixa, g.nome); setConfirmando(false); }} className={btnPrimario + " flex-1"}>
+              <Check size={14} /> Confirmar: sai {fmtUSD(total)} do {CAIXA_META[caixa].label}
+            </button>
+            <button onClick={() => setConfirmando(false)} className={btnSecundario}>Voltar</button>
+          </>
+        ) : (
+          <button disabled={selecionadas.length === 0} onClick={() => setConfirmando(true)} className={btnPrimario + " flex-1"}>
+            <Check size={14} /> Pagar {fmtUSD(total)}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

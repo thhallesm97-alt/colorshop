@@ -487,6 +487,17 @@ export default function IndufarmaApp() {
     addMovimento(caixaKey, "Saída", conta.valor, `Conta: ${conta.nome}`);
   }
 
+  // O cliente paga o frete para a farmácia e a farmácia repassa ao freteiro.
+  function pagarFreteiro(vendaIds, caixaKey, nomeFreteiro) {
+    const ids = new Set(vendaIds);
+    const lista = vendasTodas.filter((v) => ids.has(v.id) && v.frete && !v.frete.pagoFreteiroEm);
+    if (lista.length === 0) return;
+    const total = lista.reduce((s, v) => s + Number(v.frete.valor || 0), 0);
+    const hojeIso = todayISO();
+    setVendas((vs) => vs.map((v) => (ids.has(v.id) && v.frete && !v.frete.pagoFreteiroEm ? { ...v, frete: { ...v.frete, pagoFreteiroEm: hojeIso, pagoFreteiroCaixa: caixaKey } } : v)));
+    addMovimento(caixaKey, "Saída", total, `Frete pago a ${nomeFreteiro} (${lista.map((v) => "#" + v.numero).join(", ")})`);
+  }
+
   function marcarVendaPaga(id, caixaKey) {
     const venda = vendas.find((v) => v.id === id);
     if (!venda || venda.status === "Pago") return;
@@ -587,7 +598,7 @@ export default function IndufarmaApp() {
     abrirModal, fecharModal, editando,
     addMovimento, registrarVenda, registrarCompra, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
     duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
-    salvarOrcamento, atualizarOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro,
+    salvarOrcamento, atualizarOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
     entregasPendentes, cotacoesAguardando, baixarBackup, restaurarBackup,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
   };
