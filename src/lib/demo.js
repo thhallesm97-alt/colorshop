@@ -39,7 +39,7 @@ export function dadosDemo() {
     { id: "c1", vendedorId: "s1", nome: "María González", contato: "+595 981 234 567", endereco: "Av. Mcal. López 1520, Villa Morra", cidade: "Asunción" },
     { id: "c2", vendedorId: "s2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado", endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación" },
     { id: "c3", vendedorId: "s2", nome: "Ana Duarte", contato: "+595 991 300 450" },
-    { id: "c4", vendedorId: "s1", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista", endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo" },
+    { id: "c4", vendedorId: "s1", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista", limiteCredito: 300, endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo" },
     { id: "c5", vendedorId: "s1", nome: "Jorge Villalba", contato: "+595 975 410 880", proximoContato: diasAtras(0), notaContato: "Disse que faz o pedido hoje", ultimoContato: diasAtras(4) },
   ];
   const fornecedores = [

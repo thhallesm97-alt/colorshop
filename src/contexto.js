@@ -55,11 +55,29 @@ export const custoComissao = (item) => {
 
 // Lucro de uma venda para a comissão: preço de venda menos o custo para vendedores de cada
 // item (o frete não entra). Vendas antigas, sem o custo guardado, usam o custo atual.
-export const lucroDaVenda = (venda, estoque) =>
-  (venda.itens || []).reduce((s, l) => {
-    const custo = l.custoVendedor != null ? Number(l.custoVendedor) : custoComissao(estoque.find((i) => i.id === l.itemId));
-    return s + Number(l.subtotal || 0) - custo * Number(l.qtd || 0);
-  }, 0);
+// Produtos devolvidos pelo cliente saem do lucro (e da comissão).
+export const lucroDaVenda = (venda, estoque) => {
+  const custoDe = (l) => (l.custoVendedor != null ? Number(l.custoVendedor) : custoComissao(estoque.find((i) => i.id === l.itemId)));
+  const vendido = (venda.itens || []).reduce((s, l) => s + Number(l.subtotal || 0) - custoDe(l) * Number(l.qtd || 0), 0);
+  const devolvido = (venda.devolucoes || []).reduce(
+    (s, d) => s + (d.itens || []).reduce((a, x) => { const l = venda.itens[x.linha] || {}; return a + Number(x.valor || 0) - custoDe(l) * Number(x.qtd || 0); }, 0), 0);
+  return vendido - devolvido;
+};
+
+// Quanto do valor da venda foi devolvido ao cliente.
+export const valorDevolvido = (venda) => (venda.devolucoes || []).reduce((s, d) => s + Number(d.valor || 0), 0);
+// Quantidade já devolvida de cada linha da venda.
+export const qtdDevolvida = (venda, linha) =>
+  (venda.devolucoes || []).reduce((s, d) => s + (d.itens || []).filter((x) => x.linha === linha).reduce((a, x) => a + Number(x.qtd || 0), 0), 0);
+
+// Comissão de um vendedor num mês ("2026-10"): % sobre o lucro das vendas dele.
+export function comissaoDoMes(vendedor, vendas, estoque, mes) {
+  const vs = vendas.filter((v) => v.vendedorId === vendedor.id && String(v.data).startsWith(mes));
+  const lucro = vs.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
+  const valor = (Math.max(0, lucro) * Number(vendedor.comissao || 0)) / 100;
+  const pago = (vendedor.comissoesPagas || []).filter((p) => p.mes === mes).reduce((s, p) => s + Number(p.valor || 0), 0);
+  return { vendas: vs, lucro, valor, pago, falta: Math.max(0, Math.round((valor - pago) * 100) / 100) };
+}
 
 // Linha com preço diferente do preço da tabela (o preço da tabela fica guardado em precoTabela).
 export const precoFoiAlterado = (l) => l.precoTabela != null && Math.abs(Number(l.precoUnit) - Number(l.precoTabela)) > 0.004;

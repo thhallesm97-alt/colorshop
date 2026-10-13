@@ -2,11 +2,12 @@ import React, { useMemo, useState } from "react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
-  ListChecks, ChevronLeft, ChevronRight, Target, CalendarClock, Search, X, Send, Image as ImageIcon,
+  ListChecks, ChevronLeft, ChevronRight, Target, Wallet, Undo2, CalendarClock, Search, X, Send, Image as ImageIcon,
 } from "lucide-react";
-import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda } from "./contexto.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda, comissaoDoMes, valorDevolvido } from "./contexto.js";
 import { useFoto } from "./lib/fotos.js";
 import { ListaCompras, situacaoCompra, restanteConsignado } from "./fornecedores.jsx";
+import { SeletorMes } from "./financeiro.jsx";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar, parseISO } from "./lib/format.js";
 import {
@@ -594,11 +595,14 @@ export function VendasPage() {
                       {l.itemNome} × {l.qtd} <span className="text-xs text-slate-400">({l.tipoVenda})</span>
                     </div>
                   ))}
+                  {valorDevolvido(v) > 0 && <div className="text-xs text-red-600 mt-1">Devolução: {fmtUSD(valorDevolvido(v))}</div>}
                 </Td>
                 <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(v.valor)}</Td>
                 <Td className="text-slate-600">{v.pagamento} · {v.condicao}</Td>
                 <Td><Badge status={v.status} /></Td>
                 <Td right>
+                  <div className="flex items-center justify-end gap-1">
+                  {!ehVendedor && <button onClick={() => abrirModal("devolucao", v)} className={btnIcone} title="Devolução do cliente"><Undo2 size={15} /></button>}
                   {v.status === "Pendente" && (
                     <div className="flex items-center justify-end gap-1">
                       <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
@@ -609,6 +613,7 @@ export function VendasPage() {
                       )}
                     </div>
                   )}
+                  </div>
                 </Td>
               </tr>
             );
@@ -849,7 +854,7 @@ export function PessoasPage({ tipo }) {
             return (
               <tr key={p.id} className={linhaCls}>
                 <Td className="font-medium text-slate-900">
-                  {isCliente ? p.nome : <button onClick={() => app.abrirModal("fornecedorDetalhe", p)} className="text-left font-medium text-slate-900 hover:text-emerald-700 hover:underline">{p.nome}</button>}
+                  {isCliente ? (app.ehVendedor ? p.nome : <button onClick={() => app.abrirModal("contaCliente", p)} className="text-left font-medium text-slate-900 hover:text-emerald-700 hover:underline">{p.nome}</button>) : <button onClick={() => app.abrirModal("fornecedorDetalhe", p)} className="text-left font-medium text-slate-900 hover:text-emerald-700 hover:underline">{p.nome}</button>}
                   {isCliente && !app.ehVendedor && <div className="text-xs font-normal text-slate-400">{nomeVendedor(p.vendedorId) ? `Vendedor: ${nomeVendedor(p.vendedorId)}` : "Sem vendedor"}</div>}
                 </Td>
                 <Td className="text-slate-600">{p.contato || "—"}</Td>
@@ -864,7 +869,12 @@ export function PessoasPage({ tipo }) {
                         <div className="text-xs font-normal text-sky-700" title={p.notaContato || ""}>Retornar em {fmtDate(p.proximoContato)}{p.notaContato ? ` · ${p.notaContato}` : ""}</div>
                       )}
                     </Td>
-                    <Td right className={r?.pendente ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>{r?.pendente ? fmtUSD(r.pendente) : "—"}</Td>
+                    <Td right className={r?.pendente ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>
+                      {r?.pendente ? fmtUSD(r.pendente) : "—"}
+                      {!app.ehVendedor && Number(p.limiteCredito) > 0 && (
+                        <div className={`text-xs font-normal ${(r?.pendente || 0) > Number(p.limiteCredito) ? "text-red-600" : "text-slate-400"}`}>limite {fmtUSD(p.limiteCredito)}</div>
+                      )}
+                    </Td>
                   </>
                 )}
                 {!isCliente && (
@@ -885,8 +895,9 @@ export function PessoasPage({ tipo }) {
                     {isCliente && <button onClick={() => app.abrirModal("listaPrecos", p)} className={btnIcone} title="Enviar lista de preços"><ListChecks size={15} /></button>}
                     {!isCliente && <button onClick={() => app.abrirModal("fornecedorDetalhe", p)} className={btnIcone} title="Produtos e compras"><Package size={15} /></button>}
                     {isCliente && <button onClick={() => app.abrirModal("agendar", p)} className={btnIcone} title="Agendar próximo contato"><CalendarClock size={15} /></button>}
+                    {isCliente && !app.ehVendedor && <button onClick={() => app.abrirModal("contaCliente", p)} className={btnIcone} title="Conta do cliente"><Wallet size={15} /></button>}
                     <button onClick={() => app.abrirModal(tipo, p)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
-                    <button onClick={() => app.excluirPessoa(tipo, p)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                    {!app.ehVendedor && <button onClick={() => app.excluirPessoa(tipo, p)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>}
                   </div>
                 </Td>
               </tr>
@@ -1016,14 +1027,14 @@ export function VendedoresPage() {
       const total = vs.reduce((s, v) => s + prod(v), 0);
       const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + prod(v), 0);
       // A comissão é sobre o lucro: preço de venda menos o custo para vendedores.
-      const lucro = vs.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
-      const comissao = (Math.max(0, lucro) * Number(vd.comissao || 0)) / 100;
+      const c = comissaoDoMes(vd, vendas, estoque, prefixo);
       const meta = Number(vd.meta || 0);
-      return { vd, qtd: vs.length, total, recebido, lucro, comissao, meta, pct: meta > 0 ? (total / meta) * 100 : null };
+      return { vd, qtd: vs.length, total, recebido, lucro: c.lucro, comissao: c.valor, pago: c.pago, falta: c.falta, meta, pct: meta > 0 ? (total / meta) * 100 : null };
     })
     .sort((a, b) => b.total - a.total);
   const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + Number(v.valorProdutos ?? v.valor), 0);
   const totalComissoes = linhas.reduce((s, l) => s + l.comissao, 0);
+  const totalFalta = linhas.reduce((s, l) => s + l.falta, 0);
   const totalVendido = linhas.reduce((s, l) => s + l.total, 0);
 
   return (
@@ -1039,7 +1050,7 @@ export function VendedoresPage() {
 
       <div className={`grid grid-cols-1 ${ehVendedor ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-4 mb-6`}>
         <StatCard label={ehVendedor ? "Suas vendas" : "Vendido pelos vendedores"} value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
-        <StatCard label={ehVendedor ? "Sua comissão" : "Comissões a pagar"} value={fmtUSD(totalComissoes)} sub={ehVendedor ? "No mês selecionado" : "Sobre o lucro das vendas do mês"} icon={Receipt} tom="violet" />
+        <StatCard label={ehVendedor ? "Sua comissão" : "Comissões a pagar"} value={fmtUSD(ehVendedor ? totalComissoes : totalFalta)} sub={ehVendedor ? (totalFalta < totalComissoes - 0.004 ? `${fmtUSD(totalComissoes - totalFalta)} já pago` : "No mês selecionado") : `De ${fmtUSD(totalComissoes)} no mês, sobre o lucro`} icon={Receipt} tom="violet" />
         {!ehVendedor && <StatCard label="Vendedores" value={vendedores.filter((v) => v.ativo !== false).length} sub="Ativos" icon={Users} tom="slate" />}
       </div>
 
@@ -1052,7 +1063,7 @@ export function VendedoresPage() {
         </Cartao>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {linhas.map(({ vd, qtd, total, recebido, lucro, comissao, meta, pct }) => {
+          {linhas.map(({ vd, qtd, total, recebido, lucro, comissao, pago, falta, meta, pct }) => {
             const bateu = pct != null && pct >= 100;
             return (
               <div key={vd.id} className={`bg-white border rounded-xl p-5 shadow-sm ${vd.ativo === false ? "border-slate-200 opacity-60" : "border-slate-200"}`}>
@@ -1094,6 +1105,16 @@ export function VendedoresPage() {
                   <span className="text-xs font-medium text-violet-700">{ehVendedor ? "Sua comissão do mês" : `Comissão do mês (${fmtNum(vd.comissao, 1)}% do lucro)`}</span>
                   <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
                 </div>
+                {comissao > 0 && (
+                  <div className="flex items-center justify-between gap-2 mt-2 px-1 text-xs">
+                    <span className={falta > 0 ? "text-slate-500" : "text-emerald-700 font-medium"}>
+                      {falta > 0 ? (pago > 0 ? `Pago ${fmtUSD(pago)} · falta ${fmtUSD(falta)}` : ehVendedor ? "Ainda não paga" : `Falta pagar ${fmtUSD(falta)}`) : "Comissão paga"}
+                    </span>
+                    {!ehVendedor && falta > 0 && (
+                      <button onClick={() => abrirModal("pagarComissao", { vendedorId: vd.id, mes: prefixo })} className="font-medium text-violet-700 border border-violet-200 hover:bg-violet-50 rounded-md px-2 py-1">Pagar comissão</button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

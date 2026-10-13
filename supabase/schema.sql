@@ -123,13 +123,24 @@ begin
       v_existe := found;
       if v_existe and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
       if coalesce(r.excluido, false) then
-        if r.colecao = 'vendas' then continue; end if;
+        -- Só o dono exclui vendas e clientes.
+        if r.colecao in ('vendas', 'clientes') then continue; end if;
       elsif coalesce(r.dados ->> 'vendedorId', '') <> v_vend then
         continue;
       end if;
       -- Só o dono marca a venda como paga: o vendedor mantém o status que já estava.
       if r.colecao = 'vendas' and v_dados is not null then
         v_dados := jsonb_set(v_dados, '{status}', case when v_existe then coalesce(atual.dados -> 'status', '"Pendente"'::jsonb) else '"Pendente"'::jsonb end);
+      end if;
+      -- Só o dono define a tabela de preço e o limite de crédito do cliente.
+      if r.colecao = 'clientes' and v_dados is not null then
+        v_dados := (v_dados - 'tabela' - 'limiteCredito') || jsonb_build_object(
+          'tabela', case when v_existe then coalesce(atual.dados -> 'tabela', '"Varejo"'::jsonb) else '"Varejo"'::jsonb end,
+          'limiteCredito', case when v_existe then coalesce(atual.dados -> 'limiteCredito', 'null'::jsonb) else 'null'::jsonb end);
+      end if;
+      -- Só o dono registra devoluções: o vendedor mantém as que já estavam.
+      if r.colecao = 'vendas' and v_dados is not null then
+        v_dados := (v_dados - 'devolucoes') || jsonb_build_object('devolucoes', case when v_existe then coalesce(atual.dados -> 'devolucoes', '[]'::jsonb) else '[]'::jsonb end);
       end if;
       -- Só o dono aprova o preço alterado no orçamento.
       if r.colecao = 'orcamentos' and coalesce(v_dados ->> 'aprovacaoPreco', '') = 'Aprovado'
@@ -166,6 +177,13 @@ language sql stable security definer set search_path = '' as $$
     from public.registros r
     cross join lateral jsonb_array_elements(case when jsonb_typeof(r.dados -> 'itens') = 'array' then r.dados -> 'itens' else '[]'::jsonb end) l
     where r.colecao in ('compras', 'vendas') and not r.excluido
+    union all
+    -- Produtos que o cliente devolveu voltam ao estoque.
+    select x ->> 'itemId', coalesce(nullif(x ->> 'qtd', '')::numeric, 0), coalesce(nullif(d ->> 'ts', '')::numeric, 0)
+    from public.registros r
+    cross join lateral jsonb_array_elements(case when jsonb_typeof(r.dados -> 'devolucoes') = 'array' then r.dados -> 'devolucoes' else '[]'::jsonb end) d
+    cross join lateral jsonb_array_elements(case when jsonb_typeof(d -> 'itens') = 'array' then d -> 'itens' else '[]'::jsonb end) x
+    where r.colecao = 'vendas' and not r.excluido
   )
   select i.id,
          -- Sem custo para vendedores definido, o vendedor vê (e ganha comissão sobre) o custo real.

@@ -7,6 +7,7 @@ import * as db from "./lib/db.js";
 import { comprimir, salvarFoto, useFoto, obterFoto, copiarFoto, podeCompartilhar, compartilharFoto, urlPublica } from "./lib/fotos.js";
 import { Modal, Field, inputCls, btnPrimario, btnSecundario, Segmentado } from "./ui.jsx";
 import { CambioForm } from "./paginas.jsx";
+import { listarBackups } from "./lib/backup.js";
 
 function lerLocal(k) {
   try {
@@ -120,7 +121,7 @@ export function CampoVendedor({ valor, onChange }) {
 }
 
 export function VendaModal() {
-  const { clientes, estoque, vendedores, registrarVenda, fecharModal, ehVendedor } = useApp();
+  const { clientes, estoque, vendedores, registrarVenda, fecharModal, ehVendedor, emAbertoDoCliente } = useApp();
   const disponiveis = estoque.filter((i) => ehDeFornecedor(i) || i.qtd > 0);
   const ativos = vendedores.filter((v) => v.ativo !== false);
   const [clienteId, setClienteId] = useState("");
@@ -284,6 +285,20 @@ export function VendaModal() {
         </Field>
       </div>
       {ehVendedor && <p className="text-xs text-slate-500 -mt-2 mb-4">A venda fica como "a receber" até o dono confirmar o pagamento.</p>}
+      {(() => {
+        const c = clientes.find((x) => x.id === clienteId);
+        const limite = Number(c?.limiteCredito) || 0;
+        if (condicao !== "A prazo" || !c || !(limite > 0)) return null;
+        const deve = emAbertoDoCliente(c.id);
+        if (deve + total <= limite + 0.004) return null;
+        return (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {ehVendedor
+              ? "Esta venda a prazo passa do limite de crédito do cliente. Fale com o dono."
+              : `Passa do limite de crédito: ele já deve ${fmtUSD(deve)} e o limite é ${fmtUSD(limite)}. Você pode vender mesmo assim.`}
+          </div>
+        );
+      })()}
       <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 mb-4">
         <span className="text-sm text-slate-500">Total da venda</span>
         <span className="text-lg font-semibold text-slate-900">{fmtUSD(total)}</span>
@@ -769,6 +784,7 @@ export function PessoaModal({ tipo }) {
   const [tabela, setTabela] = useState(editando?.tabela || "Varejo");
   const [endereco, setEndereco] = useState(editando?.endereco || "");
   const [cidade, setCidade] = useState(editando?.cidade || "");
+  const [limite, setLimite] = useState(editando?.limiteCredito ?? "");
   const titulo = (editando ? "Editar " : "Novo ") + (isCliente ? "cliente" : "fornecedor");
   return (
     <Modal title={titulo} onClose={fecharModal}>
@@ -776,10 +792,18 @@ export function PessoaModal({ tipo }) {
       <Field label="WhatsApp / telefone" hint="Com código do país, ex.: +595 981 234 567. Usado para enviar mensagens pelo WhatsApp.">
         <input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" />
       </Field>
-      {isCliente && (
-        <Field label="Tabela de preço do cliente" hint="Usada nas vendas e na lista de preços enviada a ele.">
-          <Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} />
-        </Field>
+      {isCliente && !ehVendedor && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Tabela de preço do cliente" hint="Usada nas vendas e na lista de preços enviada a ele.">
+            <Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} />
+          </Field>
+          <Field label="Limite de crédito (US$)" hint="Máximo que ele pode dever em vendas a prazo. Em branco, sem limite.">
+            <input type="number" step="0.01" min="0" className={inputCls} value={limite} onChange={(e) => setLimite(e.target.value)} placeholder="Sem limite" />
+          </Field>
+        </div>
+      )}
+      {isCliente && ehVendedor && (
+        <div className="text-sm text-slate-500 mb-4">Tabela de preço: <span className="font-medium text-slate-700">{editando?.tabela || "Varejo"}</span>. Só o dono muda a tabela.</div>
       )}
       {isCliente && !ehVendedor && (
         <Field label="Vendedor responsável" hint="O vendedor vê e atende só os clientes dele.">
@@ -804,7 +828,7 @@ export function PessoaModal({ tipo }) {
         onClick={() => {
           const dados = { nome: nome.trim(), contato: contato.trim(), obs: obs.trim() };
           if (isCliente) Object.assign(dados, { tabela, endereco: endereco.trim(), cidade: cidade.trim() });
-          if (isCliente && !ehVendedor) dados.vendedorId = vendedorId;
+          if (isCliente && !ehVendedor) Object.assign(dados, { vendedorId, limiteCredito: limite === "" ? null : n(limite) });
           salvarPessoa(tipo, dados, editando);
           fecharModal();
         }}
@@ -828,7 +852,9 @@ export function CambioModal() {
 
 // Sincronização entre computadores, backup e instalação.
 export function DadosModal() {
-  const { sync, baixarBackup, restaurarBackup, fecharModal, instalar, setInstalar, ehVendedor } = useApp();
+  const { sync, baixarBackup, baixarBackupDoDia, restaurarBackup, fecharModal, instalar, setInstalar, ehVendedor } = useApp();
+  const [automaticos, setAutomaticos] = useState(null);
+  React.useEffect(() => { if (!ehVendedor) listarBackups().then(setAutomaticos).catch(() => setAutomaticos([])); }, [ehVendedor]);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -926,10 +952,26 @@ export function DadosModal() {
         <div className="text-sm font-semibold text-slate-900 mb-1">Backup</div>
         <p className="text-sm text-slate-500 mb-3">Baixe uma cópia de todos os dados para guardar no computador ou em um pendrive.</p>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={baixarBackup} className={btnSecundario}><Download size={14} /> Baixar backup</button>
+          <button onClick={() => baixarBackup()} className={btnSecundario}><Download size={14} /> Baixar backup</button>
           <button onClick={() => arquivo.current?.click()} disabled={ocupado} className={btnSecundario}><Upload size={14} /> Restaurar backup</button>
           <input ref={arquivo} type="file" accept="application/json,.json" className="hidden" onChange={restaurar} />
         </div>
+        <div className="text-xs font-medium text-slate-600 mt-4 mb-1">Backups automáticos (um por dia, neste computador)</div>
+        {automaticos === null ? (
+          <div className="text-xs text-slate-400">Carregando...</div>
+        ) : automaticos.length === 0 ? (
+          <div className="text-xs text-slate-400">O primeiro backup automático é feito hoje, alguns segundos depois de abrir o sistema.</div>
+        ) : (
+          <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
+            {automaticos.map((b) => (
+              <div key={b.dia} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                <span className="text-slate-700">{fmtDate(b.dia)} <span className="text-xs text-slate-400">· {b.registros} registros</span></span>
+                <button onClick={() => baixarBackupDoDia(b.dia)} className="text-xs font-medium text-emerald-700 hover:underline">Baixar</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {sync.configurado && <p className="text-xs text-slate-400 mt-2">Na nuvem, o Supabase também guarda um backup por dia.</p>}
       </div>
       )}
 
