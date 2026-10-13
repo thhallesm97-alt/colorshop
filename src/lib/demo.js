@@ -13,10 +13,10 @@ export function dadosDemo() {
     ["p8", "Protetor solar FPS 50", 9, 6.5, 14.9, 12.5, 4],
   ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({ id, nome, qtd, custo, varejo, atacado, lojista: Math.round((atacado - (atacado - custo) * 0.3) * 100) / 100, min, baseEm: 0 }));
   const clientes = [
-    { id: "c1", nome: "María González", contato: "+595 981 234 567" },
-    { id: "c2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado" },
+    { id: "c1", nome: "María González", contato: "+595 981 234 567", endereco: "Av. Mcal. López 1520, Villa Morra", cidade: "Asunción" },
+    { id: "c2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado", endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación" },
     { id: "c3", nome: "Ana Duarte", contato: "+595 991 300 450" },
-    { id: "c4", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista" },
+    { id: "c4", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista", endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo" },
     { id: "c5", nome: "Jorge Villalba", contato: "+595 975 410 880", proximoContato: diasAtras(0), notaContato: "Disse que faz o pedido hoje", ultimoContato: diasAtras(4) },
   ];
   const fornecedores = [
@@ -62,5 +62,25 @@ export function dadosDemo() {
     { id: "k2", nome: "Aluguel", categoria: "Aluguel", valor: 600, vencimento: diasAtras(-12), status: "Pendente", dataPagamento: null },
     { id: "k3", nome: "Internet", categoria: "Internet", valor: 35, vencimento: diasAtras(3), status: "Pago", dataPagamento: diasAtras(4) },
   ];
-  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras: [] };
+  const freteiros = [
+    { id: "t1", nome: "Transportes Itapúa", contato: "+595 985 222 333", obs: "Interior, sai às segundas e quintas" },
+    { id: "t2", nome: "Moto Express Asunción", contato: "+595 994 111 999", obs: "Entregas na capital" },
+    { id: "t3", nome: "Rápido del Sur", contato: "+595 983 444 555" },
+  ];
+  // Um orçamento aberto com cotações de frete em andamento.
+  const itensOrc = [["p5", 30, "Atacado"], ["p6", 20, "Atacado"]].map(([p, q, t]) => linha(p, q, t));
+  const orcamentos = [
+    {
+      id: "o1", numero: 1, status: "Aberto", data: diasAtras(0), ts: 0, clienteId: "c2", clienteNome: "Carlos Benítez",
+      vendedorId: "s2", vendedorNome: "Patricia Rojas", itens: itensOrc, total: itensOrc.reduce((s, l) => s + l.subtotal, 0), obs: "",
+      frete: {
+        precisa: true, endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación", obsEntrega: "Entregar de manhã", escolhida: null,
+        cotacoes: [
+          { freteiroId: "t1", nome: "Transportes Itapúa", contato: "+595 985 222 333", status: "Respondido", valor: 18, prazoDias: 2, enviadoEm: diasAtras(0) },
+          { freteiroId: "t3", nome: "Rápido del Sur", contato: "+595 983 444 555", status: "Aguardando", valor: null, prazoDias: null, enviadoEm: diasAtras(0) },
+        ],
+      },
+    },
+  ];
+  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras: [], freteiros, orcamentos };
 }

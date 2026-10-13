@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutGrid, ArrowUpRight, ArrowDownLeft, Wallet, Users, Truck, RefreshCw, Plus, Search,
-  Home, Loader2, Receipt, TrendingUp, Menu, BadgeDollarSign, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
+  Home, Loader2, Receipt, TrendingUp, Menu, BadgeDollarSign, FileText, PackageCheck, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
 } from "lucide-react";
 
 import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO } from "./contexto.js";
@@ -12,6 +12,7 @@ import { btnPrimario } from "./ui.jsx";
 import {
   VisaoGeral, EstoquePage, VendasPage, MaisVendidosPage, ComprasPage, CaixaPage, ContasPage, PessoasPage, CambioPage, VendedoresPage,
 } from "./paginas.jsx";
+import { OrcamentosPage, FretePage, OrcamentoModal, OrcamentoDetalheModal, FreteiroModal } from "./frete.jsx";
 import {
   VendaModal, CompraModal, MovimentoModal, ItemModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
   ReceberVendaModal, DadosModal, VendedorModal, ListaPrecosModal, AgendarContatoModal,
@@ -22,7 +23,9 @@ import {
 const NAV = [
   { key: "visao", label: "Visão geral", icon: Home },
   { key: "estoque", label: "Estoque", icon: LayoutGrid },
+  { key: "orcamentos", label: "Orçamentos", icon: FileText },
   { key: "vendas", label: "Vendas", icon: ArrowUpRight },
+  { key: "frete", label: "Frete", icon: PackageCheck },
   { key: "maisVendidos", label: "Mais vendidos", icon: TrendingUp },
   { key: "compras", label: "Compras", icon: ArrowDownLeft },
   { key: "caixa", label: "Caixa", icon: Wallet },
@@ -33,7 +36,7 @@ const NAV = [
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
 
-const VERSAO_DEMO = "3";
+const VERSAO_DEMO = "4";
 const lerVersaoDemo = () => {
   try { return localStorage.getItem("indufarma-demo"); } catch (e) { return null; }
 };
@@ -78,6 +81,8 @@ export default function IndufarmaApp() {
   const [cambio, setCambio] = useState(CAMBIO_PADRAO);
   const [contas, setContas] = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [orcamentos, setOrcamentos] = useState([]);
+  const [freteiros, setFreteiros] = useState([]);
 
   const [modal, setModal] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -107,6 +112,8 @@ export default function IndufarmaApp() {
     setMovimentos(db.listar("movimentos"));
     setContas(db.listar("contas"));
     setVendedores(db.listar("vendedores"));
+    setOrcamentos(db.listar("orcamentos"));
+    setFreteiros(db.listar("freteiros"));
     setCambio(lerCambio());
   }, []);
 
@@ -134,7 +141,7 @@ export default function IndufarmaApp() {
   useEffect(() => {
     const setters = {
       estoque: setEstoqueBase, vendas: setVendas, compras: setCompras, clientes: setClientes,
-      fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas, vendedores: setVendedores,
+      fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas, vendedores: setVendedores, orcamentos: setOrcamentos, freteiros: setFreteiros,
     };
     db.aoReceberDaNuvem((cols) => {
       cols.forEach((col) => {
@@ -163,6 +170,8 @@ export default function IndufarmaApp() {
   useEffect(() => { if (loaded) db.gravar("movimentos", movimentos); }, [movimentos, loaded]);
   useEffect(() => { if (loaded) db.gravar("contas", contas); }, [contas, loaded]);
   useEffect(() => { if (loaded) db.gravar("vendedores", vendedores); }, [vendedores, loaded]);
+  useEffect(() => { if (loaded) db.gravar("orcamentos", orcamentos); }, [orcamentos, loaded]);
+  useEffect(() => { if (loaded) db.gravar("freteiros", freteiros); }, [freteiros, loaded]);
   useEffect(() => { if (loaded) db.gravar("config", [cambio]); }, [cambio, loaded]);
 
   // ---- botão "Instalar no computador" ----
@@ -242,6 +251,13 @@ export default function IndufarmaApp() {
     );
   }, [clientes, vendas, hoje]);
 
+  // Vendas com frete que ainda não saíram, e orçamentos esperando resposta do freteiro.
+  const entregasPendentes = useMemo(() => vendas.filter((v) => v.frete && v.frete.status === "A enviar"), [vendas]);
+  const cotacoesAguardando = useMemo(
+    () => orcamentos.filter((o) => o.status === "Aberto" && o.frete?.precisa && (o.frete.cotacoes || []).some((c) => c.status === "Aguardando")),
+    [orcamentos]
+  );
+
   // ---- ações ----
   // Depois de mandar mensagem, marca o contato e abre a tela para agendar o próximo.
   function registrarContato(clienteId) {
@@ -259,7 +275,7 @@ export default function IndufarmaApp() {
   }
 
   // Devolve uma mensagem de erro, ou null se a venda foi registrada.
-  function registrarVenda({ clienteId, vendedorId, itens, pagamento, condicao }) {
+  function registrarVenda({ clienteId, vendedorId, itens, pagamento, condicao, frete = null, orcamentoId = null }) {
     if (!itens || itens.length === 0) return "Adicione pelo menos um produto.";
     const qtdPorItem = {};
     itens.forEach((l) => (qtdPorItem[l.itemId] = (qtdPorItem[l.itemId] || 0) + l.qtd));
@@ -272,23 +288,83 @@ export default function IndufarmaApp() {
     const vendedor = vendedores.find((x) => x.id === vendedorId);
     const linhas = itens.map((l) => {
       const item = estoque.find((i) => i.id === l.itemId);
-      const precoUnit = precoDe(item, l.tipoVenda);
+      // Venda vinda de orçamento mantém o preço combinado com o cliente.
+      const precoUnit = l.precoUnit != null ? Number(l.precoUnit) : precoDe(item, l.tipoVenda);
       return { itemId: l.itemId, itemNome: item.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit, subtotal: precoUnit * l.qtd };
     });
-    const valor = linhas.reduce((s, l) => s + l.subtotal, 0);
+    const valorProdutos = linhas.reduce((s, l) => s + l.subtotal, 0);
+    const valor = valorProdutos + (frete ? Number(frete.valor || 0) : 0);
     const numero = vendas.reduce((m, v) => Math.max(m, Number(v.numero) || 0), 0) + 1;
     // Cliente que fez pedido não precisa mais do lembrete de retorno.
     if (cliente?.proximoContato) setClientes((cs) => cs.map((x) => (x.id === cliente.id ? { ...x, proximoContato: null, notaContato: "" } : x)));
     setVendas((v) => [
       {
         id: uid(), numero, clienteId, clienteNome: cliente ? cliente.nome : "Sem nome",
-        vendedorId: vendedor ? vendedor.id : "", vendedorNome: vendedor ? vendedor.nome : "", itens: linhas, valor, pagamento, condicao,
+        vendedorId: vendedor ? vendedor.id : "", vendedorNome: vendedor ? vendedor.nome : "", itens: linhas, valor, valorProdutos, pagamento, condicao,
+        frete: frete ? { ...frete, status: "A enviar" } : null, orcamentoId,
         status: condicao === "À vista" ? "Pago" : "Pendente", data: todayISO(), ts: Date.now(),
       },
       ...v,
     ]);
     if (condicao === "À vista") addMovimento(caixaDoPagamento(pagamento), "Entrada", valor, `Venda #${numero}`);
+    return { numero };
+  }
+
+  function atualizarVenda(id, mudancas) {
+    setVendas((vs) => vs.map((v) => (v.id === id ? { ...v, ...mudancas } : v)));
+  }
+
+  function atualizarEntrega(id, mudancas) {
+    setVendas((vs) => vs.map((v) => (v.id === id && v.frete ? { ...v, frete: { ...v.frete, ...mudancas } } : v)));
+  }
+
+  // ---- orçamentos e frete ----
+  function salvarOrcamento(dados, original) {
+    if (original) {
+      setOrcamentos((os) => os.map((o) => (o.id === original.id ? { ...o, ...dados } : o)));
+      return original.id;
+    }
+    const id = uid();
+    const numero = orcamentos.reduce((m, o) => Math.max(m, Number(o.numero) || 0), 0) + 1;
+    setOrcamentos((os) => [{ id, numero, status: "Aberto", data: todayISO(), ts: Date.now(), ...dados }, ...os]);
+    return id;
+  }
+
+  function atualizarOrcamento(id, mudancas) {
+    setOrcamentos((os) => os.map((o) => (o.id === id ? { ...o, ...(typeof mudancas === "function" ? mudancas(o) : mudancas) } : o)));
+  }
+
+  function excluirOrcamento(o) {
+    if (!window.confirm(`Excluir o orçamento #${o.numero}?`)) return false;
+    setOrcamentos((os) => os.filter((x) => x.id !== o.id));
+    return true;
+  }
+
+  // Transforma o orçamento em venda, com o frete escolhido.
+  function converterOrcamento(o, { pagamento, condicao }) {
+    const cot = o.frete?.precisa ? (o.frete.cotacoes || []).find((c) => c.freteiroId === o.frete.escolhida) : null;
+    if (o.frete?.precisa && !cot) return "Escolha uma das opções de frete antes de fechar a venda.";
+    const frete = cot
+      ? { freteiroId: cot.freteiroId, freteiroNome: cot.nome, valor: Number(cot.valor || 0), prazoDias: Number(cot.prazoDias || 0), endereco: o.frete.endereco, cidade: o.frete.cidade }
+      : null;
+    const r = registrarVenda({
+      clienteId: o.clienteId, vendedorId: o.vendedorId, pagamento, condicao, frete, orcamentoId: o.id,
+      itens: o.itens.map((l) => ({ itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit })),
+    });
+    if (typeof r === "string") return r;
+    atualizarOrcamento(o.id, { status: "Aprovado", vendaNumero: r.numero, dataAprovacao: todayISO() });
     return null;
+  }
+
+  function salvarFreteiro(dados, original) {
+    if (original) setFreteiros((d) => d.map((p) => (p.id === original.id ? { ...p, ...dados } : p)));
+    else setFreteiros((d) => [...d, { id: uid(), ...dados }]);
+  }
+
+  function excluirFreteiro(f) {
+    if (!window.confirm(`Excluir o freteiro "${f.nome}"?`)) return false;
+    setFreteiros((d) => d.filter((x) => x.id !== f.id));
+    return true;
   }
 
   function registrarCompra({ fornecedorId, itens, pagamento }) {
@@ -400,7 +476,7 @@ export default function IndufarmaApp() {
   function baixarBackup() {
     const data = {
       app: "indufarma", versao: 2, exportadoEm: new Date().toISOString(),
-      estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, movimentos, contas, cambio,
+      estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, orcamentos, freteiros, movimentos, contas, cambio,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -422,7 +498,7 @@ export default function IndufarmaApp() {
     // Grava antes o que está na tela, para a importação não ser desfeita.
     db.gravar("estoque", estoqueBase); db.gravar("vendas", vendas); db.gravar("compras", compras);
     db.gravar("clientes", clientes); db.gravar("fornecedores", fornecedores); db.gravar("movimentos", movimentos);
-    db.gravar("contas", contas); db.gravar("vendedores", vendedores); db.gravar("config", [cambio]);
+    db.gravar("contas", contas); db.gravar("vendedores", vendedores); db.gravar("orcamentos", orcamentos); db.gravar("freteiros", freteiros); db.gravar("config", [cambio]);
     const n = await db.importar(normalizar(bruto));
     recarregarTudo();
     return n;
@@ -440,12 +516,14 @@ export default function IndufarmaApp() {
 
   const ctx = {
     page, setPage: irPara, busca, setBusca,
-    estoque, estoqueBase, vendas, compras, clientes, fornecedores, vendedores, movimentos, caixas, cambio, setCambio, contas,
+    estoque, estoqueBase, vendas, compras, clientes, fornecedores, vendedores, orcamentos, freteiros, movimentos, caixas, cambio, setCambio, contas,
     vendasHoje, vendasDoDia, aReceber, vendasACobrar, valorEstoque, unidadesEstoque, estoqueBaixo,
     contasPendentes, totalContasPendentes, contasVencendo, clientesSemPedido, registrarContato, agendarContato,
     abrirModal, fecharModal, editando,
     addMovimento, registrarVenda, registrarCompra, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
-    duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, baixarBackup, restaurarBackup,
+    duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
+    salvarOrcamento, atualizarOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro,
+    entregasPendentes, cotacoesAguardando, baixarBackup, restaurarBackup,
     sync, instalar, setInstalar,
   };
 
@@ -482,10 +560,15 @@ export default function IndufarmaApp() {
     clientes: <PessoasPage tipo="cliente" />,
     fornecedores: <PessoasPage tipo="fornecedor" />,
     vendedores: <VendedoresPage />,
+    orcamentos: <OrcamentosPage />,
+    frete: <FretePage />,
     cambio: <CambioPage />,
   };
 
-  const contadores = { estoque: estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length };
+  const contadores = {
+    estoque: estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
+    frete: entregasPendentes.length + cotacoesAguardando.length,
+  };
 
   const sidebar = (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full">
@@ -609,6 +692,9 @@ export default function IndufarmaApp() {
         {modal === "vendedor" && <VendedorModal />}
         {modal === "listaPrecos" && <ListaPrecosModal />}
         {modal === "agendar" && <AgendarContatoModal />}
+        {modal === "orcamento" && <OrcamentoModal />}
+        {modal === "orcamentoDetalhe" && <OrcamentoDetalheModal />}
+        {modal === "freteiro" && <FreteiroModal />}
       </div>
     </AppCtx.Provider>
   );

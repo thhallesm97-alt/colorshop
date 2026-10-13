@@ -115,6 +115,8 @@ export function normalizar(bruto) {
     movimentos,
     clientes: (bruto.clientes || []).map(pessoa),
     fornecedores: (bruto.fornecedores || []).map(pessoa),
+    orcamentos: (bruto.orcamentos || []).map((o) => ({ ...o, id: String(o.id) })),
+    freteiros: (bruto.freteiros || []).map(pessoa),
     vendedores: (bruto.vendedores || []).map((v) => ({ ...v, id: String(v.id), nome: String(v.nome || "Sem nome"), comissao: num(v.comissao), meta: num(v.meta), ativo: v.ativo !== false })),
     contas: (bruto.contas || []).map(conta),
   };

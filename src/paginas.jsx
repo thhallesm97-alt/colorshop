@@ -842,14 +842,16 @@ export function VendedoresPage() {
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
     .map((vd) => {
       const vs = doMes.filter((v) => v.vendedorId === vd.id);
-      const total = vs.reduce((s, v) => s + v.valor, 0);
-      const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + v.valor, 0);
+      // Frete não entra na comissão nem na meta.
+      const prod = (v) => Number(v.valorProdutos ?? v.valor);
+      const total = vs.reduce((s, v) => s + prod(v), 0);
+      const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + prod(v), 0);
       const comissao = (total * Number(vd.comissao || 0)) / 100;
       const meta = Number(vd.meta || 0);
       return { vd, qtd: vs.length, total, recebido, comissao, meta, pct: meta > 0 ? (total / meta) * 100 : null };
     })
     .sort((a, b) => b.total - a.total);
-  const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + v.valor, 0);
+  const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + Number(v.valorProdutos ?? v.valor), 0);
   const totalComissoes = linhas.reduce((s, l) => s + l.comissao, 0);
   const totalVendido = linhas.reduce((s, l) => s + l.total, 0);
 

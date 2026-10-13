@@ -19,6 +19,8 @@ export const COLECOES = {
   fornecedores: "asc",
   contas: "asc",
   vendedores: "asc",
+  orcamentos: "desc",
+  freteiros: "asc",
   config: "asc",
 };
 

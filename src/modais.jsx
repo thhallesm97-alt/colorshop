@@ -57,7 +57,7 @@ export function VendaModal() {
 
   const termo = normalizar(filtro);
   const opcoes = disponiveis.filter((i) => !termo || normalizar(i.nome).includes(termo));
-  const item = estoque.find((i) => i.id === itemId);
+  const item = opcoes.find((i) => i.id === itemId);
   const jaNoCarrinho = carrinho.filter((l) => l.itemId === itemId).reduce((s, l) => s + l.qtd, 0);
   const disponivel = item ? item.qtd - jaNoCarrinho : 0;
   const precoUnit = precoDe(item, tipoVenda);
@@ -78,7 +78,7 @@ export function VendaModal() {
       pagamento,
       condicao,
     });
-    if (e) setErro(e);
+    if (typeof e === "string") setErro(e);
     else {
       gravarLocal("indufarma-ultimo-vendedor", vendedorId);
       fecharModal();
@@ -488,6 +488,8 @@ export function PessoaModal({ tipo }) {
   const [contato, setContato] = useState(editando?.contato || "");
   const [obs, setObs] = useState(editando?.obs || "");
   const [tabela, setTabela] = useState(editando?.tabela || "Varejo");
+  const [endereco, setEndereco] = useState(editando?.endereco || "");
+  const [cidade, setCidade] = useState(editando?.cidade || "");
   const titulo = (editando ? "Editar " : "Novo ") + (isCliente ? "cliente" : "fornecedor");
   return (
     <Modal title={titulo} onClose={fecharModal}>
@@ -500,11 +502,21 @@ export function PessoaModal({ tipo }) {
           <Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} />
         </Field>
       )}
+      {isCliente && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="sm:col-span-2">
+            <Field label="Endereço de entrega" hint="Vai junto no pedido de cotação aos freteiros.">
+              <input className={inputCls} value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro" />
+            </Field>
+          </div>
+          <Field label="Cidade"><input className={inputCls} value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="Ex.: Encarnación" /></Field>
+        </div>
+      )}
       <Field label="Observação"><input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Opcional" /></Field>
       <button
         onClick={() => {
           const dados = { nome: nome.trim(), contato: contato.trim(), obs: obs.trim() };
-          if (isCliente) dados.tabela = tabela;
+          if (isCliente) Object.assign(dados, { tabela, endereco: endereco.trim(), cidade: cidade.trim() });
           salvarPessoa(tipo, dados, editando);
           fecharModal();
         }}
