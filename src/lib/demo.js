@@ -150,7 +150,47 @@ export function dadosDemo() {
     vendedorId: "s1", vendedorNome: "Lucas Ortiz", itens: itensO3, total: itensO3[0].subtotal, obs: "", aprovacaoPreco: "Aprovado", precoAprovadoEm: diasAtras(0),
     vistoPeloDono: true, respostaVista: false, frete: { precisa: false, endereco: "", cidade: "", obsEntrega: "", cotacoes: [], escolhida: null },
   });
-  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras, freteiros, orcamentos };
+  // Pagamento parcial: o cliente pagou uma parte da venda a prazo.
+  const vp = vendas.find((v) => v.clienteId === "c2" && v.condicao === "A prazo");
+  const agora = Date.now();
+  // Hora de um dia passado; para hoje, alguns minutos atrás (nunca no futuro).
+  const hora = (dias, h, m) => {
+    if (dias === 0) return agora - (h * 60 + m) * 1000;
+    const d = new Date(agora - dias * 86400000); d.setHours(h, m, 0, 0); return d.getTime();
+  };
+  if (vp) {
+    vp.pagamentos = [{ valor: 50, data: diasAtras(2), ts: hora(2, 10, 15), caixa: "usdt" }];
+    movimentos.unshift({ id: "m3", caixa: "usdt", tipo: "Entrada", valor: 50, descricao: `Pagamento parcial venda #${vp.numero}`, data: diasAtras(2), ts: hora(2, 10, 15) });
+  }
+  movimentos.unshift(
+    { id: "m4", caixa: "dolar", tipo: "Entrada", valor: 42, descricao: "Venda no balcão", data: diasAtras(1), ts: hora(1, 9, 40) },
+    { id: "m5", caixa: "dolar", tipo: "Saída", valor: 15, descricao: "Material de limpeza", data: diasAtras(1), ts: hora(1, 16, 5) },
+    { id: "m6", caixa: "pix", tipo: "Entrada", valor: 120, descricao: "Venda no balcão", data: diasAtras(0), ts: hora(0, 8, 50) },
+  );
+  // Fechamento de ontem (faltou US$ 2 no dólar efetivo).
+  const ontem = diasAtras(1);
+  const fechamentos = [{
+    id: ontem, data: ontem, fechadoPor: "Thalles", ts: hora(1, 19, 10), obs: "Faltou troco",
+    caixas: {
+      usdt: { abertura: 50, entradas: 0, saidas: 0, esperado: 50, contado: null, diferenca: 0 },
+      dolar: { abertura: 350, entradas: 42, saidas: 15, esperado: 377, contado: 375, diferenca: -2 },
+      pix: { abertura: 1200, entradas: 0, saidas: 0, esperado: 1200, contado: 1200, diferenca: 0 },
+      real: { abertura: 0, entradas: 0, saidas: 0, esperado: 0, contado: null, diferenca: 0 },
+    },
+  }];
+  const h = (dias, hh, mm, quem, papel, acao, detalhe, extra = {}) => ({ id: `h${dias}${hh}${mm}`, ts: hora(dias, hh, mm), data: diasAtras(dias), quem, papel, acao, detalhe, ...extra });
+  const historico = [
+    h(0, 9, 12, "Lucas Ortiz", "vendedor", "Orçamento", "Novo orçamento com preço mudado, espera aprovação: Dipirona 500mg US$ 0,95 → US$ 0,85", { vendedorId: "s1" }),
+    h(0, 8, 30, "Thalles", "dono", "Câmbio", "Chaco compra 5.24 → 5.26, TCR 5.24 → 5.26"),
+    h(1, 19, 10, "Thalles", "dono", "Fechamento", `Dia ${ontem.split("-").reverse().join("/")} fechado: Dólar efetivo faltou 2.00 USD`),
+    h(1, 17, 2, "Thalles", "dono", "Orçamento", "Preço do orçamento #LO-2 (Lucas Ortiz) aprovado"),
+    h(1, 16, 5, "João", "dono", "Caixa", "Saída manual em Dólar efetivo: 15.00 USD (Material de limpeza)"),
+    h(1, 11, 20, "João", "dono", "Produto", "Ibuprofeno 400mg: varejo US$ 2,40 → US$ 2,60"),
+    h(2, 10, 15, "Thalles", "dono", "Recebimento", vp ? `Venda #${vp.numero} (${vp.clienteNome}): recebeu US$ 50,00, ainda falta ${"US$ " + (vp.valor - 50).toFixed(2).replace(".", ",")}` : "Recebimento"),
+    h(3, 15, 45, "Thalles", "dono", "Cliente", "Farmacia San Roque: limite sem limite → US$ 300,00"),
+    h(4, 14, 0, "João", "dono", "Exclusão", "Produto Vitamina E 400UI excluído (tinha 0 em estoque)"),
+  ];
+  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras, freteiros, orcamentos, historico, fechamentos };
 }
 
 // Desenha "fotos" de exemplo (uma caixa de remédio com o nome) e guarda neste navegador.

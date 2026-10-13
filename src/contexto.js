@@ -64,6 +64,12 @@ export const lucroDaVenda = (venda, estoque) => {
   return vendido - devolvido;
 };
 
+// Pagamentos parciais de uma venda a receber: venda.pagamentos [{valor, data, caixa}].
+export const valorPagoDaVenda = (venda) => (venda.pagamentos || []).reduce((s, p) => s + Number(p.valor || 0), 0);
+// Quanto ainda falta o cliente pagar nesta venda.
+export const faltaReceber = (venda) =>
+  venda.status === "Pago" ? 0 : Math.max(0, Math.round((Number(venda.valor || 0) - valorPagoDaVenda(venda)) * 100) / 100);
+
 // Quanto do valor da venda foi devolvido ao cliente.
 export const valorDevolvido = (venda) => (venda.devolucoes || []).reduce((s, d) => s + Number(d.valor || 0), 0);
 // Quantidade já devolvida de cada linha da venda.

@@ -3,7 +3,7 @@
 
 import React, { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, TrendingUp, DollarSign, Receipt, Wallet } from "lucide-react";
-import { useApp, CAIXA_META, comissaoDoMes, lucroDaVenda, valorDevolvido, qtdDevolvida } from "./contexto.js";
+import { useApp, CAIXA_META, comissaoDoMes, lucroDaVenda, valorDevolvido, qtdDevolvida, faltaReceber, valorPagoDaVenda } from "./contexto.js";
 import { fmtUSD, fmtDate, fmtNum, todayISO } from "./lib/format.js";
 import { Modal, Field, inputCls, btnPrimario, btnIcone, Cartao, StatCard, Th, Td, Vazio, Badge } from "./ui.jsx";
 
@@ -79,7 +79,7 @@ export function ContaClienteModal() {
   const voltar = { modal: "contaCliente", item: c };
   const vs = vendas.filter((v) => v.clienteId === c.id).sort((a, b) => (b.ts || 0) - (a.ts || 0) || String(b.data).localeCompare(String(a.data)));
   const total = vs.reduce((s, v) => s + n(v.valor), 0);
-  const emAberto = vs.filter((v) => v.status === "Pendente").reduce((s, v) => s + n(v.valor), 0);
+  const emAberto = vs.filter((v) => v.status === "Pendente").reduce((s, v) => s + faltaReceber(v), 0);
   const limite = n(c.limiteCredito);
   const atrasadas = vs.filter((v) => v.status === "Pendente" && v.data < diasAtrasISO(30));
   return (
@@ -106,13 +106,17 @@ export function ContaClienteModal() {
                   {(v.itens || []).map((l, i) => <div key={i}>{l.itemNome} × {l.qtd}</div>)}
                   {valorDevolvido(v) > 0 && <div className="text-xs text-red-600">Devolvido {fmtUSD(valorDevolvido(v))}</div>}
                 </Td>
-                <Td right className="whitespace-nowrap font-medium">{fmtUSD(v.valor)}</Td>
+                <Td right className="whitespace-nowrap font-medium">
+                  {fmtUSD(v.valor)}
+                  {v.status === "Pendente" && valorPagoDaVenda(v) > 0 && <div className="text-xs font-normal text-amber-700">Falta {fmtUSD(faltaReceber(v))}</div>}
+                </Td>
                 <Td className="whitespace-nowrap">
                   <Badge status={v.status} />
+                  {(v.pagamentos || []).map((p, i) => <div key={i} className="text-xs text-slate-500 mt-0.5">Pagou {fmtUSD(p.valor)} em {fmtDate(p.data)}</div>)}
                   <div className="text-xs text-slate-400 mt-0.5">{v.status === "Pago" ? (v.dataRecebimento ? `Recebido ${fmtDate(v.dataRecebimento)}` : v.condicao) : v.condicao}</div>
                 </Td>
                 <Td right>
-                  {v.status === "Pendente" && <button onClick={() => abrirModal("receberVenda", v, voltar)} className="text-xs font-medium text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-md px-2 py-1">Recebido</button>}
+                  {v.status === "Pendente" && <button onClick={() => abrirModal("receberVenda", v, voltar)} className="text-xs font-medium text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-md px-2 py-1">Receber</button>}
                 </Td>
               </tr>
             ))}
@@ -235,8 +239,9 @@ export function RelatorioPage() {
     const porCategoria = {};
     for (const k of despesasLista) porCategoria[k.categoria] = (porCategoria[k.categoria] || 0) + n(k.valor);
     const comprado = compras.filter((c) => String(c.data).startsWith(mes) && c.condicao !== "Devolução").reduce((s, c) => s + n(c.total), 0);
-    const recebido = doMes.filter((v) => v.status === "Pago").reduce((s, v) => s + n(v.valorProdutos ?? v.valor), 0);
-    const aReceber = doMes.filter((v) => v.status === "Pendente").reduce((s, v) => s + n(v.valorProdutos ?? v.valor), 0);
+    // A receber: o que falta pagar (sem passar do valor dos produtos, pois o frete é repassado).
+    const aReceber = doMes.filter((v) => v.status === "Pendente").reduce((s, v) => s + Math.min(n(v.valorProdutos ?? v.valor), faltaReceber(v)), 0);
+    const recebido = doMes.reduce((s, v) => s + n(v.valorProdutos ?? v.valor), 0) - aReceber;
     const bruto = receita - custo;
     return {
       qtdVendas: doMes.length, receita, custo, bruto, devolvido, comissoes, despesas, porCategoria, liquido: bruto - comissoes - despesas,

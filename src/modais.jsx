@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check, ImagePlus, Share2, Image as ImageIcon } from "lucide-react";
-import { useApp, CAIXA_META, PAGAMENTOS, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto } from "./contexto.js";
+import { useApp, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda } from "./contexto.js";
 import { fmtUSD, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
@@ -502,7 +502,7 @@ export function CompraModal() {
 }
 
 export function MovimentoModal() {
-  const { addMovimento, fecharModal } = useApp();
+  const { movimentoManual, fecharModal } = useApp();
   const [caixaKey, setCaixaKey] = useState("pix");
   const [tipo, setTipo] = useState("Entrada");
   const [valor, setValor] = useState(0);
@@ -525,7 +525,7 @@ export function MovimentoModal() {
         <input className={inputCls} value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex.: Troco inicial, retirada, depósito" />
       </Field>
       <button
-        onClick={() => { addMovimento(caixaKey, tipo, valor, descricao.trim() || "Movimento manual"); fecharModal(); }}
+        onClick={() => { movimentoManual(caixaKey, tipo, valor, descricao.trim() || "Movimento manual"); fecharModal(); }}
         disabled={!(valor > 0)}
         className={btnPrimario + " w-full"}
       >
@@ -759,16 +759,34 @@ export function PagarContaModal() {
 
 export function ReceberVendaModal() {
   const { editando: venda, marcarVendaPaga, fecharModal } = useApp();
-  const [caixaKey, setCaixaKey] = useState("pix");
+  const [caixaKey, setCaixaKey] = useState(venda?.pagamento ? caixaDoPagamento(venda.pagamento) : "pix");
+  const falta = venda ? faltaReceber(venda) : 0;
+  const [valor, setValor] = useState(falta ? String(falta) : "");
   if (!venda) return null;
+  const pago = valorPagoDaVenda(venda);
+  const v = Math.round(n(valor) * 100) / 100;
+  const parcial = v > 0 && v < falta - 0.004;
+  const invalido = !(v > 0) || v > falta + 0.004;
   return (
     <Modal title={`Receber venda #${venda.numero}`} onClose={fecharModal}>
-      <div className="text-sm text-slate-600 mb-4">
-        Cliente: <span className="font-medium text-slate-900">{venda.clienteNome}</span> · Valor: <span className="font-semibold text-slate-900">{fmtUSD(venda.valor)}</span>
+      <div className="text-sm text-slate-600 mb-4 space-y-1">
+        <div>Cliente: <span className="font-medium text-slate-900">{venda.clienteNome}</span> · Valor: <span className="font-semibold text-slate-900">{fmtUSD(venda.valor)}</span></div>
+        {(venda.pagamentos || []).map((p, i) => (
+          <div key={i} className="text-xs text-slate-500">Pagou {fmtUSD(p.valor)} em {fmtDate(p.data)} ({CAIXA_META[p.caixa]?.label || p.caixa})</div>
+        ))}
+        {pago > 0 && <div>Falta: <span className="font-semibold text-amber-700">{fmtUSD(falta)}</span></div>}
+      </div>
+      <Field label="Quanto o cliente pagou (US$)">
+        <input type="number" min="0" step="0.01" className={inputCls} value={valor} onChange={(e) => setValor(e.target.value)} />
+      </Field>
+      <div className="text-xs mb-3 -mt-1 min-h-4">
+        {v > falta + 0.004 ? <span className="text-red-600">Maior do que falta pagar ({fmtUSD(falta)}).</span>
+          : parcial ? <span className="text-amber-700">Pagamento parcial. Depois disso ainda faltam {fmtUSD(falta - v)}.</span>
+          : <span className="text-slate-400">Com esse valor a venda fica paga.</span>}
       </div>
       <Field label="Recebido em"><SelectCaixa value={caixaKey} onChange={setCaixaKey} /></Field>
-      <button onClick={() => { marcarVendaPaga(venda.id, caixaKey); fecharModal(); }} className={btnPrimario + " w-full"}>
-        Confirmar recebimento
+      <button disabled={invalido} onClick={() => { marcarVendaPaga(venda.id, caixaKey, v); fecharModal(); }} className={btnPrimario + " w-full disabled:opacity-50"}>
+        {parcial ? "Registrar pagamento parcial" : "Confirmar recebimento"}
       </button>
     </Modal>
   );
@@ -995,7 +1013,7 @@ export function DadosModal() {
 }
 
 export function VendedorModal() {
-  const { editando, salvarVendedor, excluirVendedor, fecharModal } = useApp();
+  const { editando, salvarVendedor, excluirVendedor, fecharModal, registrar } = useApp();
   const isEdit = !!editando;
   const [nome, setNome] = useState(editando?.nome || "");
   const [contato, setContato] = useState(editando?.contato || "");
@@ -1012,6 +1030,7 @@ export function VendedorModal() {
     setSalvandoSenha(true); setEstadoSenha(null);
     try {
       await db.definirLogin(loginTrim, senha);
+      registrar("Vendedor", `Login de ${nomeVendedor} criado ou senha trocada (usuário "${db.nomeDeLogin(loginTrim)}")`);
       setSenha("");
       setEstadoSenha({ ok: true, texto: `Pronto: ${nomeVendedor} entra com o usuário "${db.nomeDeLogin(loginTrim)}" e esta senha. Salve o vendedor para valer.` });
     } catch (e) {

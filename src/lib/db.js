@@ -22,6 +22,8 @@ export const COLECOES = {
   vendedores: "asc",
   orcamentos: "desc",
   freteiros: "asc",
+  historico: "desc",
+  fechamentos: "desc",
   config: "asc",
 };
 

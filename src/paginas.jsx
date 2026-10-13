@@ -4,7 +4,7 @@ import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
   ListChecks, ChevronLeft, ChevronRight, Target, Wallet, Undo2, CalendarClock, Search, X, Send, Image as ImageIcon,
 } from "lucide-react";
-import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda, comissaoDoMes, valorDevolvido } from "./contexto.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda, comissaoDoMes, valorDevolvido, faltaReceber, valorPagoDaVenda } from "./contexto.js";
 import { useFoto } from "./lib/fotos.js";
 import { ListaCompras, situacaoCompra, restanteConsignado } from "./fornecedores.jsx";
 import { SeletorMes } from "./financeiro.jsx";
@@ -32,6 +32,13 @@ function calcularMaisVendidos(vendas, estoque, desde) {
     }
   }
   return [...r.values()].sort((a, b) => b.qtd - a.qtd || b.total - a.total);
+}
+
+// Mensagem de cobrança pelo WhatsApp (mostra o que já foi pago quando houve pagamento parcial).
+function textoCobranca(v) {
+  const pago = valorPagoDaVenda(v);
+  const valor = pago > 0 ? `${fmtUSD(faltaReceber(v))} (já recebemos ${fmtUSD(pago)} de ${fmtUSD(v.valor)})` : fmtUSD(v.valor);
+  return `Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, falta ${valor}. Obrigado!`;
 }
 
 export function VisaoGeral() {
@@ -89,9 +96,9 @@ export function VisaoGeral() {
                       <div className="text-xs text-slate-400">Venda #{v.numero} · {fmtDate(v.data)}{nomeVendedor(v.vendedorId) ? ` · ${nomeVendedor(v.vendedorId)}` : ""}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-medium text-slate-900">{fmtUSD(v.valor)}</span>
-                      <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
-                      {!ehVendedor && <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>}
+                      <span className="font-medium text-slate-900" title={valorPagoDaVenda(v) > 0 ? `Já pagou ${fmtUSD(valorPagoDaVenda(v))} de ${fmtUSD(v.valor)}` : undefined}>{fmtUSD(faltaReceber(v))}</span>
+                      <LinkWhatsApp contato={cliente?.contato} texto={textoCobranca(v)} />
+                      {!ehVendedor && <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Receber</button>}
                     </div>
                   </li>
                 );
@@ -596,7 +603,10 @@ export function VendasPage() {
                   ))}
                   {valorDevolvido(v) > 0 && <div className="text-xs text-red-600 mt-1">Devolução: {fmtUSD(valorDevolvido(v))}</div>}
                 </Td>
-                <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(v.valor)}</Td>
+                <Td right className="font-medium text-slate-900 whitespace-nowrap">
+                  {fmtUSD(v.valor)}
+                  {v.status === "Pendente" && valorPagoDaVenda(v) > 0 && <div className="text-xs font-normal text-amber-700">Falta {fmtUSD(faltaReceber(v))}</div>}
+                </Td>
                 <Td className="text-slate-600">{v.pagamento} · {v.condicao}</Td>
                 <Td><Badge status={v.status} /></Td>
                 <Td right>
@@ -604,11 +614,11 @@ export function VendasPage() {
                   {!ehVendedor && <button onClick={() => abrirModal("devolucao", v)} className={btnIcone} title="Devolução do cliente"><Undo2 size={15} /></button>}
                   {v.status === "Pendente" && (
                     <div className="flex items-center justify-end gap-1">
-                      <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
+                      <LinkWhatsApp contato={cliente?.contato} texto={textoCobranca(v)} />
                       {ehVendedor ? (
                         <span className="text-xs text-slate-400 whitespace-nowrap">O dono confirma</span>
                       ) : (
-                        <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                        <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Receber</button>
                       )}
                     </div>
                   )}
@@ -792,7 +802,7 @@ export function PessoasPage({ tipo }) {
       const e = (r[v.clienteId] ||= { total: 0, ultima: null, pendente: 0 });
       e.total += v.valor;
       if (!e.ultima || v.data > e.ultima) e.ultima = v.data;
-      if (v.status === "Pendente") e.pendente += v.valor;
+      if (v.status === "Pendente") e.pendente += faltaReceber(v);
     }
     return r;
   }, [app.vendas, isCliente]);

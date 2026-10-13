@@ -119,6 +119,8 @@ export function normalizar(bruto) {
     freteiros: (bruto.freteiros || []).map(pessoa),
     vendedores: (bruto.vendedores || []).map((v) => ({ ...v, id: String(v.id), nome: String(v.nome || "Sem nome"), comissao: num(v.comissao), meta: num(v.meta), ativo: v.ativo !== false })),
     contas: (bruto.contas || []).map(conta),
+    historico: (bruto.historico || []).map((h) => ({ ...h, id: String(h.id) })),
+    fechamentos: (bruto.fechamentos || []).map((f) => ({ ...f, id: String(f.id) })),
   };
   if (bruto.cambio && typeof bruto.cambio === "object") {
     out.config = [{ ...bruto.cambio, id: "cambio" }];

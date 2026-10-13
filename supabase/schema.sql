@@ -118,9 +118,15 @@ begin
     if v_papel = 'vendedor' then
       -- Vendedor só grava os próprios clientes, vendas e orçamentos; não mexe no caixa.
       -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
-      if r.colecao not in ('clientes', 'vendas', 'orcamentos') then continue; end if;
+      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico') then continue; end if;
       select * into atual from public.registros where colecao = r.colecao and id = r.id;
       v_existe := found;
+      -- Histórico: o vendedor só acrescenta (não muda nem apaga), sempre com o nome dele.
+      if r.colecao = 'historico' then
+        if v_existe or coalesce(r.excluido, false) or v_dados is null then continue; end if;
+        v_dados := v_dados || jsonb_build_object('vendedorId', v_vend, 'papel', 'vendedor',
+          'quem', coalesce((select x.dados ->> 'nome' from public.registros x where x.colecao = 'vendedores' and x.id = v_vend), 'Vendedor'));
+      end if;
       if v_existe and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
       if coalesce(r.excluido, false) then
         -- Só o dono exclui vendas e clientes.
@@ -138,9 +144,11 @@ begin
           'tabela', case when v_existe then coalesce(atual.dados -> 'tabela', '"Varejo"'::jsonb) else '"Varejo"'::jsonb end,
           'limiteCredito', case when v_existe then coalesce(atual.dados -> 'limiteCredito', 'null'::jsonb) else 'null'::jsonb end);
       end if;
-      -- Só o dono registra devoluções: o vendedor mantém as que já estavam.
+      -- Só o dono registra devoluções e pagamentos: o vendedor mantém os que já estavam.
       if r.colecao = 'vendas' and v_dados is not null then
-        v_dados := (v_dados - 'devolucoes') || jsonb_build_object('devolucoes', case when v_existe then coalesce(atual.dados -> 'devolucoes', '[]'::jsonb) else '[]'::jsonb end);
+        v_dados := (v_dados - 'devolucoes' - 'pagamentos') || jsonb_build_object(
+          'devolucoes', case when v_existe then coalesce(atual.dados -> 'devolucoes', '[]'::jsonb) else '[]'::jsonb end,
+          'pagamentos', case when v_existe then coalesce(atual.dados -> 'pagamentos', '[]'::jsonb) else '[]'::jsonb end);
       end if;
       -- Só o dono aprova o preço alterado no orçamento.
       if r.colecao = 'orcamentos' and coalesce(v_dados ->> 'aprovacaoPreco', '') = 'Aprovado'
