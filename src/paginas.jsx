@@ -37,13 +37,13 @@ export function VisaoGeral() {
   const {
     cambio, vendas, vendasHoje, vendasDoDia, aReceber, totalContasPendentes, contasPendentes, valorEstoque, unidadesEstoque,
     clientes, fornecedores, caixas, estoque, estoqueBaixo, vendasACobrar, contasVencendo, abrirModal, setPage,
-    clientesSemPedido, registrarContato, ehVendedor, vendedores, orcamentosParaAprovar,
+    clientesSemPedido, registrarContato, ehVendedor, vendedores, orcamentosDoVendedor, respostasDoDono,
   } = useApp();
   // Para o dono: o nome do vendedor que atende cada cliente.
   const nomeVendedor = (id) => (ehVendedor ? null : vendedores.find((v) => v.id === id)?.nome || null);
   const top = useMemo(() => calcularMaisVendidos(vendas, estoque, diasAtras(29)).slice(0, 5), [vendas, estoque]);
   const maxTop = top[0]?.qtd || 1;
-  const temLembretes = (!ehVendedor && orcamentosParaAprovar.length > 0) || vendasACobrar.length > 0 || contasVencendo.length > 0 || (!ehVendedor && estoqueBaixo.length > 0) || clientesSemPedido.length > 0;
+  const temLembretes = orcamentosDoVendedor.length > 0 || respostasDoDono.length > 0 || vendasACobrar.length > 0 || contasVencendo.length > 0 || (!ehVendedor && estoqueBaixo.length > 0) || clientesSemPedido.length > 0;
   const hoje = todayISO();
 
   return (
@@ -97,15 +97,32 @@ export function VisaoGeral() {
                 );
               })}
             </Lembretes>
-            {!ehVendedor && orcamentosParaAprovar.length > 0 && (
-              <Lembretes titulo={`Preços para aprovar (${orcamentosParaAprovar.length})`} vazio="">
-                {orcamentosParaAprovar.slice(0, 6).map((o) => (
+            {orcamentosDoVendedor.length > 0 && (
+              <Lembretes titulo={`Orçamentos dos vendedores (${orcamentosDoVendedor.length})`} vazio="">
+                {orcamentosDoVendedor.slice(0, 6).map((o) => (
                   <li key={o.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="font-medium text-slate-900 truncate">{o.clienteNome}</div>
-                      <div className="text-xs text-slate-400">Orçamento #{o.numero}{o.vendedorNome ? ` · ${o.vendedorNome}` : ""}</div>
+                      <div className="text-xs text-slate-400">#{o.numero} · {o.vendedorNome || "Vendedor"} · {fmtUSD(o.total)}</div>
+                      <div className={`text-xs ${o.aprovacaoPreco === "Pendente" ? "text-amber-700 font-medium" : "text-sky-700"}`}>{o.aprovacaoPreco === "Pendente" ? "Pede aprovação de preço" : "Orçamento novo"}</div>
                     </div>
-                    <button onClick={() => abrirModal("orcamentoDetalhe", { id: o.id })} className={btnContorno}>Ver</button>
+                    <button onClick={() => abrirModal("orcamentoDetalhe", { id: o.id })} className={btnContorno}>{o.aprovacaoPreco === "Pendente" ? "Aprovar" : "Ver"}</button>
+                  </li>
+                ))}
+              </Lembretes>
+            )}
+            {respostasDoDono.length > 0 && (
+              <Lembretes titulo={`Respostas do dono (${respostasDoDono.length})`} vazio="">
+                {respostasDoDono.slice(0, 6).map((o) => (
+                  <li key={o.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{o.clienteNome}</div>
+                      <div className="text-xs text-slate-400">Orçamento #{o.numero} · {fmtUSD(o.total)}</div>
+                      <div className={`text-xs font-medium ${o.aprovacaoPreco === "Aprovado" ? "text-emerald-700" : "text-red-600"}`}>
+                        {o.aprovacaoPreco === "Aprovado" ? "Preço aprovado: pode enviar ao cliente" : "Preço recusado: voltou ao preço da tabela"}
+                      </div>
+                    </div>
+                    <button onClick={() => abrirModal("orcamentoDetalhe", { id: o.id })} className={btnContorno}>Abrir</button>
                   </li>
                 ))}
               </Lembretes>

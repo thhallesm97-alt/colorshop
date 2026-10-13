@@ -139,8 +139,16 @@ export function dadosDemo() {
   const itensO2 = [{ ...lp, precoTabela, precoUnit: 3.4, subtotal: 3.4 * 50 }];
   orcamentos.push({
     id: "o2", numero: "LO-1", status: "Aberto", data: diasAtras(0), ts: 0, clienteId: "c4", clienteNome: "Farmacia San Roque",
-    vendedorId: "s1", vendedorNome: "Lucas Ortiz", itens: itensO2, total: itensO2[0].subtotal, obs: "Cliente pediu desconto por levar 50", aprovacaoPreco: "Pendente",
+    vendedorId: "s1", vendedorNome: "Lucas Ortiz", itens: itensO2, total: itensO2[0].subtotal, obs: "Cliente pediu desconto por levar 50", aprovacaoPreco: "Pendente", vistoPeloDono: false,
     frete: { precisa: false, endereco: "", cidade: "", obsEntrega: "", cotacoes: [], escolhida: null },
+  });
+  // Um orçamento que o dono já aprovou e o Lucas ainda não viu.
+  const l3 = linha("p6", 20, "Atacado");
+  const itensO3 = [{ ...l3, precoTabela: l3.precoUnit, precoUnit: 3.6, subtotal: 3.6 * 20 }];
+  orcamentos.push({
+    id: "o3", numero: "LO-2", status: "Aberto", data: diasAtras(1), ts: 0, clienteId: "c1", clienteNome: clientes.find((c) => c.id === "c1").nome,
+    vendedorId: "s1", vendedorNome: "Lucas Ortiz", itens: itensO3, total: itensO3[0].subtotal, obs: "", aprovacaoPreco: "Aprovado", precoAprovadoEm: diasAtras(0),
+    vistoPeloDono: true, respostaVista: false, frete: { precisa: false, endereco: "", cidade: "", obsEntrega: "", cotacoes: [], escolhida: null },
   });
   return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras, freteiros, orcamentos };
 }

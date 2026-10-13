@@ -785,12 +785,14 @@ export function OrcamentoModal() {
 }
 
 export function OrcamentoDetalheModal() {
-  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, aprovarPrecoOrcamento, abrirModal, fecharModal, setPage, ehVendedor } = useApp();
+  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, aprovarPrecoOrcamento, marcarOrcamentoVisto, abrirModal, fecharModal, setPage, ehVendedor } = useApp();
   const o = orcamentos.find((x) => x.id === editando?.id);
   const [pagamento, setPagamento] = useState("PIX");
   const [condicao, setCondicao] = useState("À vista");
   const [erro, setErro] = useState(null);
   const [comNomes, setComNomes] = useState(false);
+  // Abrir o orçamento tira ele dos lembretes de quem abriu.
+  React.useEffect(() => { if (o) marcarOrcamentoVisto(o); }, [o?.id, o?.vistoPeloDono, o?.respostaVista]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!o) return null;
   const cliente = clientes.find((c) => c.id === o.clienteId);
   const cotacoes = o.frete?.precisa ? o.frete.cotacoes || [] : [];

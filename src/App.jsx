@@ -37,7 +37,7 @@ const NAV = [
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
 
-const VERSAO_DEMO = "7";
+const VERSAO_DEMO = "8";
 // Na demonstração dá para ver o sistema como um vendedor o veria.
 const lerVerComo = () => {
   try { return JSON.parse(localStorage.getItem("indufarma-ver-como") || "null"); } catch (e) { return null; }
@@ -268,6 +268,20 @@ export default function IndufarmaApp() {
   const unidadesEstoque = useMemo(() => proprios.reduce((s, i) => s + Math.max(0, i.qtd), 0), [proprios]);
   const estoqueBaixo = useMemo(() => proprios.filter((i) => i.qtd <= i.min), [proprios]);
   const orcamentosParaAprovar = useMemo(() => orcamentos.filter((o) => o.status === "Aberto" && o.aprovacaoPreco === "Pendente"), [orcamentos]);
+  // Lembretes de orçamento. Dono: os que o vendedor fez e ele ainda não abriu (e os que esperam
+  // aprovação de preço). Vendedor: os que o dono aprovou ou recusou e ele ainda não abriu.
+  const orcamentosDoVendedor = useMemo(
+    () => (ehVendedor ? [] : orcamentos.filter((o) => o.status === "Aberto" && o.vendedorId && (o.vistoPeloDono === false || o.aprovacaoPreco === "Pendente"))),
+    [orcamentos, ehVendedor]
+  );
+  const respostasDoDono = useMemo(
+    () => (ehVendedor ? orcamentos.filter((o) => o.respostaVista === false && (o.aprovacaoPreco === "Aprovado" || o.aprovacaoPreco === "Recusado")) : []),
+    [orcamentos, ehVendedor]
+  );
+  function marcarOrcamentoVisto(o) {
+    if (ehVendedor && o.respostaVista === false) atualizarOrcamento(o.id, { respostaVista: true });
+    if (!ehVendedor && o.vistoPeloDono === false) atualizarOrcamento(o.id, { vistoPeloDono: true });
+  }
   const contasPendentes = useMemo(() => contas.filter((c) => c.status === "Pendente"), [contas]);
   const totalContasPendentes = useMemo(() => contasPendentes.reduce((s, c) => s + c.valor, 0), [contasPendentes]);
   const contasVencendo = useMemo(
@@ -391,6 +405,8 @@ export default function IndufarmaApp() {
     // Preço diferente da tabela: se foi o vendedor, espera a aprovação do dono.
     const alterado = (dados.itens || []).some(precoFoiAlterado);
     dados = { ...dados, aprovacaoPreco: alterado ? (ehVendedor ? "Pendente" : "Aprovado") : null };
+    // Orçamento feito ou mudado pelo vendedor aparece nos lembretes do dono até ele abrir.
+    if (ehVendedor) dados.vistoPeloDono = false;
     if (original) {
       setOrcamentos((os) => os.map((o) => (o.id === original.id ? { ...o, ...dados } : o)));
       return original.id;
@@ -413,9 +429,10 @@ export default function IndufarmaApp() {
   function aprovarPrecoOrcamento(id, aprovar) {
     if (ehVendedor) return;
     atualizarOrcamento(id, (o) => {
-      if (aprovar) return { aprovacaoPreco: "Aprovado", precoAprovadoEm: todayISO() };
+      // A resposta aparece nos lembretes do vendedor até ele abrir o orçamento.
+      if (aprovar) return { aprovacaoPreco: "Aprovado", precoAprovadoEm: todayISO(), vistoPeloDono: true, respostaVista: false };
       const itens = o.itens.map((l) => (precoFoiAlterado(l) ? { ...l, precoUnit: l.precoTabela, subtotal: l.precoTabela * l.qtd } : l));
-      return { itens, total: itens.reduce((s, l) => s + l.subtotal, 0), aprovacaoPreco: "Recusado", precoRecusadoEm: todayISO() };
+      return { itens, total: itens.reduce((s, l) => s + l.subtotal, 0), aprovacaoPreco: "Recusado", precoRecusadoEm: todayISO(), vistoPeloDono: true, respostaVista: false };
     });
   }
 
@@ -710,7 +727,7 @@ export default function IndufarmaApp() {
     addMovimento, registrarVenda, registrarCompra, acertarConsignado, importarProdutos, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
     duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
     salvarOrcamento, atualizarOrcamento, aprovarPrecoOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
-    entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, baixarBackup, restaurarBackup,
+    entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, orcamentosDoVendedor, respostasDoDono, marcarOrcamentoVisto, baixarBackup, restaurarBackup,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
   };
 
@@ -772,7 +789,7 @@ export default function IndufarmaApp() {
   const contadores = {
     estoque: ehVendedor ? 0 : estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
     frete: entregasPendentes.length + cotacoesAguardando.length,
-    orcamentos: ehVendedor ? 0 : orcamentosParaAprovar.length,
+    orcamentos: ehVendedor ? respostasDoDono.length : orcamentosDoVendedor.length,
   };
 
   const sidebar = (
