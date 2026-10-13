@@ -191,6 +191,7 @@ const SB_URL = import.meta.env.VITE_SUPABASE_URL;
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let sb = null;
 let sessao = null;
+let sessaoLida = false;
 let timer = null;
 let rodando = false;
 let repetir = false;
@@ -202,6 +203,7 @@ function iniciarNuvem() {
   });
   sb.auth.getSession().then(({ data }) => {
     sessao = data.session;
+    sessaoLida = true;
     avisar();
     sincronizar();
   });
@@ -235,6 +237,7 @@ export function status() {
     configurado: !!sb,
     online: typeof navigator === "undefined" ? true : navigator.onLine,
     logado: !!sessao,
+    sessaoLida,
     email: sessao?.user?.email || null,
     pendentes,
     ...estado,
@@ -243,10 +246,26 @@ export function status() {
   };
 }
 
-export async function entrar(email, senha) {
+// Login por usuário: "joao" entra como joao@indufarma.app. Quem digitar um e-mail usa o e-mail.
+export const DOMINIO_LOGIN = "indufarma.app";
+export const emailDeLogin = (usuario) => {
+  const u = String(usuario || "").trim().toLowerCase();
+  return !u ? "" : u.includes("@") ? u : `${u}@${DOMINIO_LOGIN}`;
+};
+export const nomeDeLogin = (email) => String(email || "").replace(new RegExp(`@${DOMINIO_LOGIN.replace(".", "\\.")}$`, "i"), "");
+
+export async function entrar(usuario, senha) {
   if (!sb) throw new Error("Sincronização não configurada.");
-  const { error } = await sb.auth.signInWithPassword({ email, password: senha });
-  if (error) throw new Error(error.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : error.message);
+  const { error } = await sb.auth.signInWithPassword({ email: emailDeLogin(usuario), password: senha });
+  if (error) throw new Error(error.message === "Invalid login credentials" ? "Usuário ou senha incorretos." : error.message);
+}
+
+// O dono cria o login de um vendedor, ou troca a senha dele.
+export async function definirLogin(usuario, senha) {
+  if (!sb) throw new Error("A nuvem não está configurada neste sistema.");
+  if (!navigator.onLine) throw new Error("Precisa de internet para criar ou trocar a senha.");
+  const { error } = await sb.rpc("definir_login", { p_usuario: usuario, p_senha: senha });
+  if (error) throw new Error(error.message);
 }
 
 // Ao sair, os dados deste computador são apagados (ficam na nuvem), para que outra pessoa

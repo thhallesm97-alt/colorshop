@@ -47,8 +47,8 @@ export function dadosDemo() {
     { id: "f2", nome: "Farma Import CDE", contato: "+595 61 500 200" },
   ];
   const vendedores = [
-    { id: "s1", nome: "Lucas Ortiz", contato: "+595 981 100 200", comissao: 5, meta: 1500, ativo: true, email: "lucas@exemplo.com" },
-    { id: "s2", nome: "Patricia Rojas", contato: "+595 982 300 400", comissao: 4, meta: 1200, ativo: true, email: "patricia@exemplo.com" },
+    { id: "s1", nome: "Lucas Ortiz", contato: "+595 981 100 200", comissao: 5, meta: 1500, ativo: true, email: "lucas" },
+    { id: "s2", nome: "Patricia Rojas", contato: "+595 982 300 400", comissao: 4, meta: 1200, ativo: true, email: "patricia" },
   ];
   const linha = (pid, qtd, tipo = "Varejo") => {
     const p = estoque.find((x) => x.id === pid);

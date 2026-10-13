@@ -40,7 +40,7 @@ const NAV = [
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
 
-const VERSAO_DEMO = "9";
+const VERSAO_DEMO = "10";
 // Na demonstração dá para ver o sistema como um vendedor o veria.
 const lerVerComo = () => {
   try { return JSON.parse(localStorage.getItem("indufarma-ver-como") || "null"); } catch (e) { return null; }
@@ -848,13 +848,16 @@ export default function IndufarmaApp() {
   const nav = ehVendedor ? NAV.filter((n) => PAGINAS_VENDEDOR.includes(n.key)).map((n) => (n.key === "vendedores" ? { ...n, label: "Minhas metas" } : n)) : NAV;
   const paginaAtual = nav.some((n) => n.key === page) ? page : "visao";
 
+  // Com a nuvem configurada, só entra quem tem login.
+  if (!verComo && sync.configurado && sync.sessaoLida && !sync.logado) return <TelaEntrar sync={sync} />;
+
   if (acesso.papel === "sem_acesso") {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 text-center">
         <div className="max-w-sm">
           <AlertTriangle className="mx-auto text-amber-500 mb-3" />
           <div className="text-sm text-slate-700 mb-1 font-medium">Este login ainda não tem acesso.</div>
-          <div className="text-sm text-slate-500">Peça ao dono para colocar o seu e-mail ({sync.email}) no cadastro de vendedores. Depois, abra o sistema de novo.</div>
+          <div className="text-sm text-slate-500">Peça ao dono para criar o seu acesso (usuário {db.nomeDeLogin(sync.email)}) no cadastro de vendedores. Depois, abra o sistema de novo.</div>
           <button className={btnPrimario + " mt-4"} onClick={() => db.sair().catch(() => {})}>Entrar com outro login</button>
         </div>
       </div>
@@ -1020,6 +1023,46 @@ export default function IndufarmaApp() {
         {modal === "freteiro" && <FreteiroModal />}
       </div>
     </AppCtx.Provider>
+  );
+}
+
+function TelaEntrar({ sync }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+  async function entrar(e) {
+    e.preventDefault();
+    setOcupado(true); setErro(null);
+    try {
+      await db.entrar(usuario, senha);
+    } catch (err) {
+      setErro(err.message);
+      setOcupado(false);
+    }
+  }
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+      <form onSubmit={entrar} className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-10 h-10" />
+          <div>
+            <div className="text-lg font-semibold leading-tight">Indufarma</div>
+            <div className="text-xs text-slate-400">Gestão da farmácia</div>
+          </div>
+        </div>
+        {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</div>}
+        <label className="block text-xs font-medium text-slate-600 mb-1">Usuário</label>
+        <input value={usuario} onChange={(e) => setUsuario(e.target.value)} required autoFocus autoCapitalize="none" autoComplete="username"
+          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+        <label className="block text-xs font-medium text-slate-600 mb-1">Senha</label>
+        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} required autoComplete="current-password"
+          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+        <button type="submit" disabled={ocupado || !sync.online} className={btnPrimario + " w-full"}>
+          {ocupado ? <Loader2 size={14} className="animate-spin" /> : null} {sync.online ? "Entrar" : "Sem internet: conecte para entrar"}
+        </button>
+      </form>
+    </div>
   );
 }
 

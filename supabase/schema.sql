@@ -214,3 +214,62 @@ drop policy if exists "dono envia fotos" on storage.objects;
 create policy "dono envia fotos" on storage.objects
   for insert to authenticated
   with check (bucket_id = 'fotos-produtos' and (select public.meu_papel()) = 'dono');
+
+-- =====================================================================
+-- Login por usuário: "joao" vira o e-mail interno joao@indufarma.app.
+-- O dono cria e troca o login e a senha dos vendedores pelo sistema.
+-- =====================================================================
+create or replace function public.email_de_login(p text) returns text
+language sql immutable set search_path = '' as $$
+  select case when p is null or trim(p) = '' then null
+              when position('@' in p) > 0 then lower(trim(p))
+              else lower(trim(p)) || '@indufarma.app' end
+$$;
+
+create or replace function public.meu_vendedor() returns text
+language sql stable security definer set search_path = '' as $$
+  select r.id from public.registros r
+  where r.colecao = 'vendedores' and not r.excluido
+    and coalesce(r.dados ->> 'ativo', 'true') <> 'false'
+    and public.email_de_login(r.dados ->> 'email') = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and not exists (select 1 from public.acessos a where a.email = lower(coalesce(auth.jwt() ->> 'email', '')))
+  order by r.criado_em
+  limit 1
+$$;
+
+-- Cria o login (ou troca a senha, se já existir). Só o dono pode, e nunca para um dono.
+create or replace function public.definir_login(p_usuario text, p_senha text) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_email text := public.email_de_login(p_usuario);
+  v_id uuid;
+begin
+  if public.meu_papel() is distinct from 'dono' then
+    raise exception 'Só o dono cria ou troca logins.' using errcode = '42501';
+  end if;
+  if v_email is null or v_email !~ '^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]+$' then
+    raise exception 'Usuário inválido. Use letras, números, ponto ou traço.';
+  end if;
+  if length(coalesce(p_senha, '')) < 6 then
+    raise exception 'A senha precisa ter pelo menos 6 caracteres.';
+  end if;
+  if exists (select 1 from public.acessos where email = v_email) then
+    raise exception 'Este login é de um dono e não pode ser mudado por aqui.';
+  end if;
+  select id into v_id from auth.users where email = v_email;
+  if v_id is null then
+    v_id := gen_random_uuid();
+    insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+                            created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)
+    values ('00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated', v_email, extensions.crypt(p_senha, extensions.gen_salt('bf')), now(),
+            '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
+    insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+    values (v_id::text, v_id, jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true), 'email', now(), now(), now());
+  else
+    update auth.users set encrypted_password = extensions.crypt(p_senha, extensions.gen_salt('bf')), updated_at = now() where id = v_id;
+  end if;
+  return v_email;
+end $$;
+
+revoke all on function public.definir_login(text, text) from public, anon;
+grant execute on function public.definir_login(text, text), public.email_de_login(text) to authenticated;

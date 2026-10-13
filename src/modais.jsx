@@ -905,7 +905,7 @@ export function DadosModal() {
           </p>
         ) : sync.logado ? (
           <div className="text-sm text-slate-600 space-y-2">
-            <p>Conectado como <span className="font-medium text-slate-900">{sync.email}</span>.</p>
+            <p>Conectado como <span className="font-medium text-slate-900">{db.nomeDeLogin(sync.email)}</span>.</p>
             <p>
               {!sync.online
                 ? "Sem internet agora. Continue usando normalmente: tudo fica salvo aqui e é enviado quando a internet voltar."
@@ -938,7 +938,7 @@ export function DadosModal() {
         ) : (
           <form onSubmit={entrar}>
             <p className="text-sm text-slate-500 mb-3">Entre com a conta da farmácia para este computador enviar e receber os dados da nuvem.</p>
-            <Field label="E-mail"><input type="email" required className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></Field>
+            <Field label="Usuário"><input type="text" required className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" autoCapitalize="none" placeholder="Ex.: thalles" /></Field>
             <Field label="Senha"><input type="password" required className={inputCls} value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" /></Field>
             <button type="submit" disabled={ocupado || !sync.online} className={btnPrimario + " w-full"}>
               {ocupado ? <Loader2 size={14} className="animate-spin" /> : null} {sync.online ? "Entrar" : "Sem internet"}
@@ -1003,7 +1003,24 @@ export function VendedorModal() {
   const [meta, setMeta] = useState(editando?.meta ?? 0);
   const [ativo, setAtivo] = useState(editando?.ativo !== false);
   const [email, setEmail] = useState(editando?.email || "");
-  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const [senha, setSenha] = useState("");
+  const [estadoSenha, setEstadoSenha] = useState(null); // { ok, texto }
+  const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const loginTrim = email.trim().toLowerCase();
+  const emailOk = !loginTrim || /^[a-z0-9._+-]+$/.test(loginTrim) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginTrim);
+  async function gravarSenha() {
+    setSalvandoSenha(true); setEstadoSenha(null);
+    try {
+      await db.definirLogin(loginTrim, senha);
+      setSenha("");
+      setEstadoSenha({ ok: true, texto: `Pronto: ${nomeVendedor} entra com o usuário "${db.nomeDeLogin(loginTrim)}" e esta senha. Salve o vendedor para valer.` });
+    } catch (e) {
+      setEstadoSenha({ ok: false, texto: e.message });
+    } finally {
+      setSalvandoSenha(false);
+    }
+  }
+  const nomeVendedor = nome.trim() || "O vendedor";
   const valido = nome.trim() && comissao >= 0 && comissao <= 100 && meta >= 0 && emailOk;
   return (
     <Modal title={isEdit ? "Editar vendedor" : "Novo vendedor"} onClose={fecharModal}>
@@ -1017,13 +1034,23 @@ export function VendedorModal() {
           <input type="number" step="1" min="0" className={inputCls} value={meta} onChange={(e) => setMeta(n(e.target.value))} />
         </Field>
       </div>
-      <Field
-        label="E-mail de acesso ao sistema"
-        hint="Opcional. Com este e-mail o vendedor entra no sistema e vê só os clientes, vendas e orçamentos dele. Crie o login dele no Supabase com o mesmo e-mail."
-      >
-        <input type="email" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vendedor@email.com" />
-        {!emailOk && <div className="text-xs text-red-600 mt-1">E-mail inválido.</div>}
-      </Field>
+      <div className="border border-slate-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-semibold text-slate-900 mb-1">Acesso ao sistema</div>
+        <p className="text-xs text-slate-500 mb-3">Com este usuário e senha o vendedor entra e vê só os clientes, vendas e orçamentos dele.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Usuário">
+            <input type="text" className={inputCls} value={email} onChange={(e) => { setEmail(e.target.value); setEstadoSenha(null); }} placeholder="Ex.: lucas" autoCapitalize="none" autoComplete="off" />
+            {!emailOk && <div className="text-xs text-red-600 mt-1">Use só letras, números, ponto ou traço.</div>}
+          </Field>
+          <Field label={isEdit && editando?.email ? "Nova senha" : "Senha"} hint="Mínimo de 6 caracteres.">
+            <input type="text" className={inputCls} value={senha} onChange={(e) => { setSenha(e.target.value); setEstadoSenha(null); }} autoComplete="new-password" placeholder={isEdit && editando?.email ? "Para trocar a senha" : ""} />
+          </Field>
+        </div>
+        <button type="button" onClick={gravarSenha} disabled={!loginTrim || !emailOk || senha.length < 6 || salvandoSenha} className={btnSecundario}>
+          {salvandoSenha ? <Loader2 size={14} className="animate-spin" /> : null} {isEdit && editando?.email && editando.email === loginTrim ? "Trocar a senha" : "Criar login"}
+        </button>
+        {estadoSenha && <div className={`text-xs mt-2 ${estadoSenha.ok ? "text-emerald-700" : "text-red-600"}`}>{estadoSenha.texto}</div>}
+      </div>
       <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
         <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
         Ativo (aparece na hora de registrar a venda e pode entrar no sistema)
