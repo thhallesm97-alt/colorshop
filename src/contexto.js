@@ -44,3 +44,19 @@ export const descricaoProduto = (item) => [item?.marca, item?.tipo].filter(Boole
 
 // Produto de fornecedor: não fica no estoque da farmácia, é pedido ao fornecedor quando vende.
 export const ehDeFornecedor = (item) => item?.origem === "fornecedor";
+
+// Custo usado na comissão do vendedor: o custo para vendedores, ou o custo real se ele
+// não foi definido.
+export const custoComissao = (item) => {
+  if (!item) return 0;
+  const cv = item.custoVendedor;
+  return cv != null && cv !== "" ? Number(cv) || 0 : Number(item.custo) || 0;
+};
+
+// Lucro de uma venda para a comissão: preço de venda menos o custo para vendedores de cada
+// item (o frete não entra). Vendas antigas, sem o custo guardado, usam o custo atual.
+export const lucroDaVenda = (venda, estoque) =>
+  (venda.itens || []).reduce((s, l) => {
+    const custo = l.custoVendedor != null ? Number(l.custoVendedor) : custoComissao(estoque.find((i) => i.id === l.itemId));
+    return s + Number(l.subtotal || 0) - custo * Number(l.qtd || 0);
+  }, 0);

@@ -155,7 +155,9 @@ language sql stable security definer set search_path = '' as $$
     where r.colecao in ('compras', 'vendas') and not r.excluido
   )
   select i.id,
+         -- Sem custo para vendedores definido, o vendedor vê (e ganha comissão sobre) o custo real.
          (i.dados - 'custo') || jsonb_build_object(
+           'custoVendedor', coalesce(nullif(i.dados -> 'custoVendedor', 'null'::jsonb), i.dados -> 'custo'),
            'qtd', i.qtd + coalesce((select sum(m.q) from mov m where m.item_id = i.id and m.ts > i.base_em), 0),
            'baseEm', floor(extract(epoch from clock_timestamp()) * 1000)
          ),

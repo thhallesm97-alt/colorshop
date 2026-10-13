@@ -670,7 +670,7 @@ export function OrcamentoModal() {
           <ProdutoAvulso
             tabela={tabela}
             rotulo="Adicionar ao orçamento"
-            aoAdicionar={(l) => setItens((x) => [...x, { key: uid(), itemId: l.itemId, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit, subtotal: l.precoUnit * l.qtd, ...(l.avulso ? { avulso: true } : {}) }])}
+            aoAdicionar={(l) => setItens((x) => [...x, { key: uid(), itemId: l.itemId, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit, subtotal: l.precoUnit * l.qtd, ...(l.avulso ? { avulso: true, custoVendedor: l.custoVendedor } : {}) }])}
           />
         ) : (
         <>

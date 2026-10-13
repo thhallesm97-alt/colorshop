@@ -44,10 +44,11 @@ export function ProdutoAvulso({ tabela, aoAdicionar, rotulo }) {
   const { fornecedores, salvarItem, ehVendedor } = useApp();
   const [nome, setNome] = useState("");
   const [preco, setPreco] = useState("");
+  const [custo, setCusto] = useState("");
   const [qtd, setQtd] = useState(1);
   const [cadastrar, setCadastrar] = useState(false);
   const [fornecedorId, setFornecedorId] = useState(fornecedores[0]?.id || "");
-  const valido = nome.trim() && n(preco) > 0 && qtd >= 1 && (!cadastrar || fornecedorId);
+  const valido = nome.trim() && n(preco) > 0 && custo !== "" && n(custo) >= 0 && qtd >= 1 && (!cadastrar || fornecedorId);
 
   function adicionar() {
     if (!valido) return;
@@ -56,13 +57,14 @@ export function ProdutoAvulso({ tabela, aoAdicionar, rotulo }) {
     if (cadastrar) {
       const forn = fornecedores.find((f) => f.id === fornecedorId);
       itemId = salvarItem({
-        nome: nome.trim(), marca: "", tipo: "", qtd: 0, custo: 0, custoVendedor: null, varejo: precoUnit, atacado: precoUnit, lojista: precoUnit, min: 0,
+        nome: nome.trim(), marca: "", tipo: "", qtd: 0, custo: n(custo), custoVendedor: n(custo), varejo: precoUnit, atacado: precoUnit, lojista: precoUnit, min: 0,
         origem: "fornecedor", fornecedorId, fornecedorNome: forn?.nome || "", foto: null,
       });
     }
-    aoAdicionar({ itemId, nome: nome.trim(), qtd, tipoVenda: tabela, precoUnit, avulso: !itemId });
+    aoAdicionar({ itemId, nome: nome.trim(), qtd, tipoVenda: tabela, precoUnit, custoVendedor: n(custo), avulso: !itemId });
     setNome("");
     setPreco("");
+    setCusto("");
     setQtd(1);
     setCadastrar(false);
   }
@@ -72,9 +74,10 @@ export function ProdutoAvulso({ tabela, aoAdicionar, rotulo }) {
       <Field label="Nome do produto">
         <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Vitamina C 1g (pedido especial)" />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="Quantidade"><input type="number" min="1" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} /></Field>
         <Field label="Valor unitário (US$)"><input type="number" min="0" step="0.01" className={inputCls} value={preco} onChange={(e) => setPreco(e.target.value)} /></Field>
+        <Field label="Custo un. (US$)" hint="Para a comissão."><input type="number" min="0" step="0.01" className={inputCls} value={custo} onChange={(e) => setCusto(e.target.value)} /></Field>
       </div>
       {!ehVendedor && fornecedores.length > 0 && (
         <div className="mb-3">
@@ -154,7 +157,7 @@ export function VendaModal() {
     const e = registrarVenda({
       clienteId,
       vendedorId,
-      itens: carrinho.map((l) => (l.avulso ? { itemId: null, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit } : { itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda, ...(l.precoFixo ? { precoUnit: l.precoUnit } : {}) })),
+      itens: carrinho.map((l) => (l.avulso ? { itemId: null, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit, custoVendedor: l.custoVendedor } : { itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda, ...(l.precoFixo ? { precoUnit: l.precoUnit } : {}) })),
       pagamento,
       condicao,
     });
@@ -541,7 +544,7 @@ export function ItemModal() {
         <Field label="Custo real (US$)" hint="Só você vê.">
           <input type="number" step="0.01" min="0" className={inputCls} value={custo} onChange={(e) => setCusto(n(e.target.value))} />
         </Field>
-        <Field label="Custo para vendedores (US$)" hint="O que os vendedores veem como custo. Em branco, não veem nenhum.">
+        <Field label="Custo para vendedores (US$)" hint="O vendedor vê este custo e ganha comissão sobre o lucro em cima dele. Em branco, vale o custo real.">
           <input type="number" step="0.01" min="0" className={inputCls} value={custoVendedor} onChange={(e) => setCustoVendedor(e.target.value)} placeholder="—" />
         </Field>
       </div>
@@ -857,7 +860,7 @@ export function VendedorModal() {
       <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
       <Field label="WhatsApp / telefone"><input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Comissão (%)" hint="Sobre o valor de cada venda dele.">
+        <Field label="Comissão (%)" hint="Sobre o lucro de cada venda dele (preço menos o custo para vendedores).">
           <input type="number" step="0.1" min="0" max="100" className={inputCls} value={comissao} onChange={(e) => setComissao(n(e.target.value))} />
         </Field>
         <Field label="Meta do mês (US$)" hint="Deixe 0 para não ter meta.">

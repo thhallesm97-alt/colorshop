@@ -4,7 +4,7 @@ import {
   Home, Loader2, Receipt, TrendingUp, Menu, BadgeDollarSign, FileText, PackageCheck, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
 } from "lucide-react";
 
-import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor } from "./contexto.js";
+import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao } from "./contexto.js";
 import { fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses, diasAtras } from "./lib/format.js";
 import * as db from "./lib/db.js";
 import { lerDadosAntigosDoNavegador, normalizar } from "./lib/migracao.js";
@@ -238,7 +238,7 @@ export default function IndufarmaApp() {
   const contas = ehVendedor ? nada : contasTodas;
   const fornecedores = ehVendedor ? nada : fornecedoresTodos;
   const estoque = useMemo(
-    () => (ehVendedor ? estoqueReal.map(({ custo, ...i }) => ({ ...i, custo: Number(i.custoVendedor) || 0 })) : estoqueReal),
+    () => (ehVendedor ? estoqueReal.map((i) => { const c = custoComissao(i); const { custo, ...resto } = i; return { ...resto, custo: c, custoVendedor: c }; }) : estoqueReal),
     [ehVendedor, estoqueReal]
   );
 
@@ -344,7 +344,9 @@ export default function IndufarmaApp() {
       const item = l.itemId ? estoque.find((i) => i.id === l.itemId) : null;
       // Venda vinda de orçamento mantém o preço combinado com o cliente.
       const precoUnit = l.precoUnit != null ? Number(l.precoUnit) : precoDe(item, l.tipoVenda);
-      const linha = { itemId: l.itemId || null, itemNome: item ? item.nome : l.itemNome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit, subtotal: precoUnit * l.qtd };
+      // Guarda o custo para vendedores do momento da venda, para a comissão não mudar depois.
+      const custoVendedor = item ? custoComissao(item) : Number(l.custoVendedor) || 0;
+      const linha = { itemId: l.itemId || null, itemNome: item ? item.nome : l.itemNome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit, subtotal: precoUnit * l.qtd, custoVendedor };
       if (!item) linha.avulso = true;
       else if (ehDeFornecedor(item)) Object.assign(linha, { fornecedorId: item.fornecedorId || "", fornecedorNome: item.fornecedorNome || "" });
       return linha;
@@ -410,7 +412,7 @@ export default function IndufarmaApp() {
       : null;
     const r = registrarVenda({
       clienteId: o.clienteId, vendedorId: o.vendedorId, pagamento, condicao, frete, orcamentoId: o.id,
-      itens: o.itens.map((l) => ({ itemId: l.itemId, itemNome: l.itemNome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit })),
+      itens: o.itens.map((l) => ({ itemId: l.itemId, itemNome: l.itemNome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit, custoVendedor: l.custoVendedor })),
     });
     if (typeof r === "string") return r;
     atualizarOrcamento(o.id, { status: "Aprovado", vendaNumero: r.numero, dataAprovacao: todayISO() });

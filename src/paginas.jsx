@@ -4,7 +4,7 @@ import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
   ListChecks, ChevronLeft, ChevronRight, Target, CalendarClock, Search, X, Send, Image as ImageIcon,
 } from "lucide-react";
-import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor } from "./contexto.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda } from "./contexto.js";
 import { useFoto } from "./lib/fotos.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar, parseISO } from "./lib/format.js";
@@ -477,7 +477,7 @@ export function EstoquePage() {
                 ) : (
                   <>
                     <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.custo)}</Td>
-                    <Td right className="text-slate-400 whitespace-nowrap">{i.custoVendedor != null ? fmtUSD(i.custoVendedor) : "—"}</Td>
+                    <Td right className="text-slate-400 whitespace-nowrap">{i.custoVendedor != null && i.custoVendedor !== "" ? fmtUSD(i.custoVendedor) : <span className="text-xs">= real</span>}</Td>
                   </>
                 )}
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.varejo)}</Td>
@@ -947,7 +947,7 @@ export function CambioForm({ onSave, initial }) {
 const nomeMes = (ano, mes) => new Date(ano, mes, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
 export function VendedoresPage() {
-  const { vendedores, vendas, abrirModal, ehVendedor } = useApp();
+  const { vendedores, vendas, estoque, abrirModal, ehVendedor } = useApp();
   const hoje = new Date();
   const [ref, setRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
   const prefixo = `${ref.ano}-${String(ref.mes + 1).padStart(2, "0")}`;
@@ -966,9 +966,11 @@ export function VendedoresPage() {
       const prod = (v) => Number(v.valorProdutos ?? v.valor);
       const total = vs.reduce((s, v) => s + prod(v), 0);
       const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + prod(v), 0);
-      const comissao = (total * Number(vd.comissao || 0)) / 100;
+      // A comissão é sobre o lucro: preço de venda menos o custo para vendedores.
+      const lucro = vs.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
+      const comissao = (Math.max(0, lucro) * Number(vd.comissao || 0)) / 100;
       const meta = Number(vd.meta || 0);
-      return { vd, qtd: vs.length, total, recebido, comissao, meta, pct: meta > 0 ? (total / meta) * 100 : null };
+      return { vd, qtd: vs.length, total, recebido, lucro, comissao, meta, pct: meta > 0 ? (total / meta) * 100 : null };
     })
     .sort((a, b) => b.total - a.total);
   const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + Number(v.valorProdutos ?? v.valor), 0);
@@ -988,7 +990,7 @@ export function VendedoresPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <StatCard label="Vendido pelos vendedores" value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
-        <StatCard label="Comissões a pagar" value={fmtUSD(totalComissoes)} sub="Sobre o valor vendido no mês" icon={Receipt} tom="violet" />
+        <StatCard label="Comissões a pagar" value={fmtUSD(totalComissoes)} sub="Sobre o lucro das vendas do mês" icon={Receipt} tom="violet" />
         <StatCard label="Vendedores" value={vendedores.filter((v) => v.ativo !== false).length} sub="Ativos" icon={Users} tom="slate" />
       </div>
 
@@ -1001,7 +1003,7 @@ export function VendedoresPage() {
         </Cartao>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {linhas.map(({ vd, qtd, total, recebido, comissao, meta, pct }) => {
+          {linhas.map(({ vd, qtd, total, recebido, lucro, comissao, meta, pct }) => {
             const bateu = pct != null && pct >= 100;
             return (
               <div key={vd.id} className={`bg-white border rounded-xl p-5 shadow-sm ${vd.ativo === false ? "border-slate-200 opacity-60" : "border-slate-200"}`}>
@@ -1032,8 +1034,12 @@ export function VendedoresPage() {
                   <div className="text-xs text-slate-400 mb-4">Sem meta definida.</div>
                 )}
 
+                <div className="flex items-center justify-between text-xs text-slate-500 mb-2 px-1">
+                  <span>Lucro das vendas</span>
+                  <span className="font-medium text-slate-700">{fmtUSD(lucro)}</span>
+                </div>
                 <div className="flex items-center justify-between rounded-lg bg-violet-50 px-3 py-2">
-                  <span className="text-xs font-medium text-violet-700">Comissão do mês</span>
+                  <span className="text-xs font-medium text-violet-700">Comissão do mês ({fmtNum(vd.comissao, 1)}% do lucro)</span>
                   <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
                 </div>
               </div>
