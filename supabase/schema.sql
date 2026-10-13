@@ -35,22 +35,149 @@ alter table registros enable row level security;
 revoke all on table registros from anon;
 revoke all on sequence registros_seq from anon;
 
-drop policy if exists "usuarios logados" on registros;
-create policy "usuarios logados" on registros
-  for all to authenticated using (true) with check (true);
 
--- Recebe um lote de alterações; quando o mesmo registro já tem uma versão mais nova, ela é mantida.
-create or replace function salvar_registros(linhas jsonb) returns void
-language sql security invoker set search_path = '' as $$
-  insert into public.registros (colecao, id, dados, excluido, atualizado_em, criado_em)
-  select r.colecao, r.id, r.dados, coalesce(r.excluido, false), r.atualizado_em, r.criado_em
-  from jsonb_to_recordset(linhas) as r(colecao text, id text, dados jsonb, excluido boolean, atualizado_em bigint, criado_em bigint)
-  on conflict (colecao, id) do update
-    set dados = excluded.dados,
-        excluido = excluded.excluido,
-        atualizado_em = excluded.atualizado_em
-    where public.registros.atualizado_em < excluded.atualizado_em;
+-- =====================================================================
+-- Acessos: o dono vê tudo; cada vendedor vê só os próprios clientes, vendas
+-- e orçamentos, e nunca o custo real, o caixa, as contas ou as compras.
+-- =====================================================================
+
+-- Donos do sistema (cadastrados à mão):
+--   insert into public.acessos (email, papel) values ('email@do.dono', 'dono');
+-- Vendedores não ficam aqui: entra como vendedor quem tem o e-mail no cadastro de
+-- vendedores do sistema (e está ativo).
+create table if not exists public.acessos (
+  email       text primary key,
+  papel       text not null check (papel in ('dono', 'vendedor')),
+  vendedor_id text
+);
+alter table public.acessos enable row level security;
+revoke all on table public.acessos from anon, authenticated;
+
+create or replace function public.meu_vendedor() returns text
+language sql stable security definer set search_path = '' as $$
+  select r.id from public.registros r
+  where r.colecao = 'vendedores' and not r.excluido
+    and coalesce(r.dados ->> 'ativo', 'true') <> 'false'
+    and lower(trim(r.dados ->> 'email')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and not exists (select 1 from public.acessos a where a.email = lower(coalesce(auth.jwt() ->> 'email', '')))
+  order by r.criado_em
+  limit 1
 $$;
 
-revoke all on function salvar_registros(jsonb) from public, anon;
-grant execute on function salvar_registros(jsonb) to authenticated;
+create or replace function public.meu_papel() returns text
+language sql stable security definer set search_path = '' as $$
+  select coalesce(
+    (select papel from public.acessos where email = lower(coalesce(auth.jwt() ->> 'email', ''))),
+    case when public.meu_vendedor() is not null then 'vendedor' end
+  )
+$$;
+
+create or replace function public.meu_acesso() returns table (papel text, vendedor_id text)
+language sql stable security definer set search_path = '' as $$
+  select public.meu_papel(), public.meu_vendedor() where public.meu_papel() is not null
+$$;
+
+-- O que um vendedor pode ver.
+create or replace function public.vendedor_ve(p_colecao text, p_id text, p_dados jsonb) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case
+    when p_colecao in ('clientes', 'vendas', 'orcamentos', 'movimentos') then coalesce(p_dados ->> 'vendedorId', '') = public.meu_vendedor()
+    when p_colecao = 'vendedores' then p_id = public.meu_vendedor()
+    when p_colecao in ('freteiros', 'config') then true
+    else false
+  end
+$$;
+
+drop policy if exists "usuarios logados" on public.registros;
+drop policy if exists "ler conforme o acesso" on public.registros;
+create policy "ler conforme o acesso" on public.registros
+  for select to authenticated
+  using ((select public.meu_papel()) = 'dono' or ((select public.meu_papel()) = 'vendedor' and public.vendedor_ve(colecao, id, dados)));
+
+-- Gravação só pela função abaixo, que confere o acesso registro por registro.
+revoke insert, update, delete on table public.registros from authenticated;
+
+create or replace function public.salvar_registros(linhas jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_papel text := public.meu_papel();
+  v_vend  text := public.meu_vendedor();
+  r       record;
+  atual   public.registros;
+begin
+  if v_papel is null then
+    raise exception 'Este login não tem acesso ao sistema.' using errcode = '42501';
+  end if;
+  for r in
+    select * from jsonb_to_recordset(linhas)
+      as x(colecao text, id text, dados jsonb, excluido boolean, atualizado_em bigint, criado_em bigint)
+  loop
+    if v_papel = 'vendedor' then
+      -- Vendedor só grava clientes, vendas, orçamentos e a entrada no caixa das próprias vendas.
+      -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
+      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'movimentos') then continue; end if;
+      select * into atual from public.registros where colecao = r.colecao and id = r.id;
+      if found and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
+      if coalesce(r.excluido, false) then
+        if r.colecao in ('vendas', 'movimentos') then continue; end if;
+      elsif coalesce(r.dados ->> 'vendedorId', '') <> v_vend then
+        continue;
+      end if;
+    end if;
+    insert into public.registros (colecao, id, dados, excluido, atualizado_em, criado_em)
+    values (r.colecao, r.id, r.dados, coalesce(r.excluido, false), r.atualizado_em, r.criado_em)
+    on conflict (colecao, id) do update
+      -- Um registro excluído guarda os últimos dados, para a exclusão chegar a quem podia vê-lo.
+      set dados = case when excluded.excluido then coalesce(public.registros.dados, excluded.dados) else excluded.dados end,
+          excluido = excluded.excluido,
+          atualizado_em = excluded.atualizado_em
+      where public.registros.atualizado_em < excluded.atualizado_em;
+  end loop;
+end $$;
+
+-- Estoque para o vendedor: quantidade atual já calculada pelo servidor (ele não recebe as
+-- compras nem as vendas dos outros) e sem o custo real.
+create or replace function public.estoque_vendedor() returns table (id text, dados jsonb, criado_em bigint)
+language sql stable security definer set search_path = '' as $$
+  with itens as (
+    select r.id, r.dados, r.criado_em,
+           coalesce(nullif(r.dados ->> 'baseEm', '')::numeric, 0) as base_em,
+           coalesce(nullif(r.dados ->> 'qtd', '')::numeric, 0) as qtd
+    from public.registros r
+    where r.colecao = 'estoque' and not r.excluido and public.meu_papel() is not null
+  ),
+  mov as (
+    select l ->> 'itemId' as item_id,
+           (case when r.colecao = 'compras' then 1 else -1 end) * coalesce(nullif(l ->> 'qtd', '')::numeric, 0) as q,
+           coalesce(nullif(r.dados ->> 'ts', '')::numeric, 0) as ts
+    from public.registros r
+    cross join lateral jsonb_array_elements(case when jsonb_typeof(r.dados -> 'itens') = 'array' then r.dados -> 'itens' else '[]'::jsonb end) l
+    where r.colecao in ('compras', 'vendas') and not r.excluido
+  )
+  select i.id,
+         (i.dados - 'custo') || jsonb_build_object(
+           'qtd', i.qtd + coalesce((select sum(m.q) from mov m where m.item_id = i.id and m.ts > i.base_em), 0),
+           'baseEm', floor(extract(epoch from clock_timestamp()) * 1000)
+         ),
+         i.criado_em
+  from itens i
+$$;
+
+-- Funções que só devolvem o acesso de quem chama; a regra de leitura usa as três primeiras.
+revoke all on function public.meu_papel(), public.meu_vendedor(), public.vendedor_ve(text, text, jsonb),
+  public.meu_acesso(), public.salvar_registros(jsonb), public.estoque_vendedor() from public, anon;
+grant execute on function public.meu_papel(), public.meu_vendedor(), public.vendedor_ve(text, text, jsonb),
+  public.meu_acesso(), public.salvar_registros(jsonb), public.estoque_vendedor() to authenticated;
+
+-- =====================================================================
+-- Fotos dos produtos: qualquer pessoa com o link vê (é o link enviado ao
+-- cliente); só o dono envia.
+-- =====================================================================
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('fotos-produtos', 'fotos-produtos', true, 3145728, array['image/jpeg'])
+on conflict (id) do nothing;
+
+drop policy if exists "dono envia fotos" on storage.objects;
+create policy "dono envia fotos" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'fotos-produtos' and (select public.meu_papel()) = 'dono');

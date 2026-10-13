@@ -1,9 +1,10 @@
 import React, { useState, useRef } from "react";
-import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check } from "lucide-react";
-import { useApp, CAIXA_META, PAGAMENTOS, TABELAS, precoDe } from "./contexto.js";
+import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check, ImagePlus, Share2, Image as ImageIcon } from "lucide-react";
+import { useApp, CAIXA_META, PAGAMENTOS, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto } from "./contexto.js";
 import { fmtUSD, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
+import { comprimir, salvarFoto, useFoto, obterFoto, copiarFoto, podeCompartilhar, compartilharFoto, urlPublica } from "./lib/fotos.js";
 import { Modal, Field, inputCls, btnPrimario, btnSecundario, Segmentado } from "./ui.jsx";
 import { CambioForm } from "./paginas.jsx";
 
@@ -37,11 +38,90 @@ function SelectCaixa({ value, onChange }) {
   );
 }
 
+// Produto que não está no cadastro: nome e preço digitados na hora. O dono pode já
+// cadastrá-lo como produto de fornecedor, para usar de novo depois.
+export function ProdutoAvulso({ tabela, aoAdicionar, rotulo }) {
+  const { fornecedores, salvarItem, ehVendedor } = useApp();
+  const [nome, setNome] = useState("");
+  const [preco, setPreco] = useState("");
+  const [qtd, setQtd] = useState(1);
+  const [cadastrar, setCadastrar] = useState(false);
+  const [fornecedorId, setFornecedorId] = useState(fornecedores[0]?.id || "");
+  const valido = nome.trim() && n(preco) > 0 && qtd >= 1 && (!cadastrar || fornecedorId);
+
+  function adicionar() {
+    if (!valido) return;
+    const precoUnit = n(preco);
+    let itemId = null;
+    if (cadastrar) {
+      const forn = fornecedores.find((f) => f.id === fornecedorId);
+      itemId = salvarItem({
+        nome: nome.trim(), marca: "", tipo: "", qtd: 0, custo: 0, custoVendedor: null, varejo: precoUnit, atacado: precoUnit, lojista: precoUnit, min: 0,
+        origem: "fornecedor", fornecedorId, fornecedorNome: forn?.nome || "", foto: null,
+      });
+    }
+    aoAdicionar({ itemId, nome: nome.trim(), qtd, tipoVenda: tabela, precoUnit, avulso: !itemId });
+    setNome("");
+    setPreco("");
+    setQtd(1);
+    setCadastrar(false);
+  }
+
+  return (
+    <>
+      <Field label="Nome do produto">
+        <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Vitamina C 1g (pedido especial)" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Quantidade"><input type="number" min="1" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} /></Field>
+        <Field label="Valor unitário (US$)"><input type="number" min="0" step="0.01" className={inputCls} value={preco} onChange={(e) => setPreco(e.target.value)} /></Field>
+      </div>
+      {!ehVendedor && fornecedores.length > 0 && (
+        <div className="mb-3">
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={cadastrar} onChange={(e) => setCadastrar(e.target.checked)} className="rounded border-slate-300 text-emerald-700" />
+            Cadastrar como produto de fornecedor (sob encomenda)
+          </label>
+          {cadastrar && (
+            <select className={inputCls + " mt-2"} value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)} aria-label="Fornecedor">
+              {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+      <button type="button" onClick={adicionar} disabled={!valido} className={btnSecundario + " w-full border-emerald-700/40 text-emerald-800"}>
+        <Plus size={14} /> {rotulo}
+      </button>
+    </>
+  );
+}
+
+// Campo de vendedor: o vendedor logado não escolhe, a venda é sempre dele.
+export function CampoVendedor({ valor, onChange }) {
+  const { vendedores, ehVendedor } = useApp();
+  if (ehVendedor) {
+    return (
+      <Field label="Vendedor">
+        <input disabled className={inputCls} value={vendedores[0]?.nome || ""} />
+      </Field>
+    );
+  }
+  return (
+    <Field label="Vendedor">
+      <select className={inputCls} value={valor} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Sem vendedor</option>
+        {vendedores.filter((v) => v.ativo !== false || v.id === valor).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+      </select>
+    </Field>
+  );
+}
+
 export function VendaModal() {
   const { clientes, estoque, vendedores, registrarVenda, fecharModal } = useApp();
-  const disponiveis = estoque.filter((i) => i.qtd > 0);
+  const disponiveis = estoque.filter((i) => ehDeFornecedor(i) || i.qtd > 0);
   const ativos = vendedores.filter((v) => v.ativo !== false);
   const [clienteId, setClienteId] = useState("");
+  const [modo, setModo] = useState("cadastro");
   const [vendedorId, setVendedorId] = useState(() => {
     const ultimo = lerLocal("indufarma-ultimo-vendedor");
     return ativos.some((v) => v.id === ultimo) ? ultimo : "";
@@ -55,18 +135,18 @@ export function VendaModal() {
   const [filtro, setFiltro] = useState("");
   const [erro, setErro] = useState(null);
 
-  const termo = normalizar(filtro);
-  const opcoes = disponiveis.filter((i) => !termo || normalizar(i.nome).includes(termo));
-  const item = opcoes.find((i) => i.id === itemId);
-  const jaNoCarrinho = carrinho.filter((l) => l.itemId === itemId).reduce((s, l) => s + l.qtd, 0);
-  const disponivel = item ? item.qtd - jaNoCarrinho : 0;
+  const opcoes = disponiveis.filter((i) => produtoCombina(i, filtro));
+  // Ao filtrar, o primeiro produto encontrado já fica escolhido.
+  const item = opcoes.find((i) => i.id === itemId) || opcoes[0];
+  const jaNoCarrinho = carrinho.filter((l) => l.itemId === item?.id).reduce((s, l) => s + l.qtd, 0);
+  const disponivel = item ? (ehDeFornecedor(item) ? Infinity : item.qtd - jaNoCarrinho) : 0;
   const precoUnit = precoDe(item, tipoVenda);
   const total = carrinho.reduce((s, l) => s + l.precoUnit * l.qtd, 0);
   const podeAdicionar = item && qtd >= 1 && Number.isInteger(qtd) && qtd <= disponivel;
 
   function addAoCarrinho() {
     if (!podeAdicionar) return;
-    setCarrinho((c) => [...c, { key: uid(), itemId, nome: item.nome, qtd, tipoVenda, precoUnit }]);
+    setCarrinho((c) => [...c, { key: uid(), itemId: item.id, nome: item.nome, qtd, tipoVenda, precoUnit }]);
     setQtd(1);
     setErro(null);
   }
@@ -74,7 +154,7 @@ export function VendaModal() {
     const e = registrarVenda({
       clienteId,
       vendedorId,
-      itens: carrinho.map((l) => ({ itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda })),
+      itens: carrinho.map((l) => (l.avulso ? { itemId: null, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit } : { itemId: l.itemId, qtd: l.qtd, tipoVenda: l.tipoVenda, ...(l.precoFixo ? { precoUnit: l.precoUnit } : {}) })),
       pagamento,
       condicao,
     });
@@ -103,17 +183,17 @@ export function VendaModal() {
             {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
         </Field>
-        <Field label="Vendedor">
-          <select className={inputCls} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
-            <option value="">Sem vendedor</option>
-            {ativos.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
-          </select>
-        </Field>
+        <CampoVendedor valor={vendedorId} onChange={setVendedorId} />
       </div>
 
       <div className="border border-slate-200 rounded-xl p-4 mb-4 bg-slate-50">
-        <div className="text-xs font-semibold text-slate-600 mb-3">Adicionar produto</div>
-        {disponiveis.length === 0 ? (
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <div className="text-xs font-semibold text-slate-600">Adicionar produto</div>
+          <Segmentado valor={modo} onChange={setModo} opcoes={[{ valor: "cadastro", label: "Do cadastro" }, { valor: "avulso", label: "Não cadastrado" }]} />
+        </div>
+        {modo === "avulso" ? (
+          <ProdutoAvulso tabela={tipoVenda} rotulo="Adicionar à venda" aoAdicionar={(l) => { setCarrinho((c) => [...c, { key: uid(), ...l, precoFixo: true }]); setErro(null); }} />
+        ) : disponiveis.length === 0 ? (
           <div className="text-sm text-slate-500">Nenhum produto com estoque disponível. Registre uma compra primeiro.</div>
         ) : (
           <>
@@ -121,19 +201,19 @@ export function VendaModal() {
               <input className={inputCls + " mb-2"} placeholder="Filtrar produtos..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
               <select
                 className={inputCls}
-                value={opcoes.some((o) => o.id === itemId) ? itemId : ""}
+                value={item?.id || ""}
                 onChange={(e) => { setItemId(e.target.value); setQtd(1); }}
               >
-                {!opcoes.some((o) => o.id === itemId) && <option value="">Selecione...</option>}
-                {opcoes.map((i) => <option key={i.id} value={i.id}>{i.nome} ({i.qtd} disp.)</option>)}
+                {!item && <option value="">Nenhum produto encontrado</option>}
+                {opcoes.map((i) => <option key={i.id} value={i.id}>{i.nome}{i.marca ? ` · ${i.marca}` : ""} ({ehDeFornecedor(i) ? "sob encomenda" : `${i.qtd} disp.`})</option>)}
               </select>
             </Field>
             <Field label="Tabela de preço">
               <Segmentado valor={tipoVenda} onChange={setTipoVenda} opcoes={TABELAS} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label={`Quantidade (${Math.max(0, disponivel)} disp.)`}>
-                <input type="number" min="1" step="1" max={disponivel} className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
+              <Field label={disponivel === Infinity ? "Quantidade (sob encomenda)" : `Quantidade (${Math.max(0, disponivel)} disp.)`}>
+                <input type="number" min="1" step="1" max={disponivel === Infinity ? undefined : disponivel} className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
               </Field>
               <Field label="Valor unitário">
                 <input type="text" disabled className={inputCls} value={item ? fmtUSD(precoUnit) : ""} />
@@ -156,7 +236,7 @@ export function VendaModal() {
               <div key={l.key} className="flex items-center justify-between px-3 py-2 text-sm">
                 <div>
                   <div className="font-medium text-slate-900">{l.nome} × {l.qtd}</div>
-                  <div className="text-xs text-slate-400">{l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
+                  <div className="text-xs text-slate-400">{l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-medium text-slate-900">{fmtUSD(l.precoUnit * l.qtd)}</span>
@@ -341,43 +421,130 @@ export function MovimentoModal() {
 }
 
 export function ItemModal() {
-  const { editando, estoque, salvarItem, excluirItem, fecharModal } = useApp();
-  const isEdit = !!editando;
+  const { editando, estoque, fornecedores, salvarItem, excluirItem, fecharModal } = useApp();
+  const isEdit = !!editando?.id;
   const [nome, setNome] = useState(editando?.nome || "");
   const [qtd, setQtd] = useState(editando?.qtd ?? 0);
   const [custo, setCusto] = useState(editando?.custo ?? 0);
+  const [custoVendedor, setCustoVendedor] = useState(editando?.custoVendedor ?? "");
   const [varejo, setVarejo] = useState(editando?.varejo ?? 0);
   const [atacado, setAtacado] = useState(editando?.atacado ?? 0);
   const [lojista, setLojista] = useState(editando?.lojista ?? editando?.atacado ?? 0);
   const [min, setMin] = useState(editando?.min ?? 3);
+  const [marca, setMarca] = useState(editando?.marca || "");
+  const [tipo, setTipo] = useState(editando?.tipo || "");
+  const [origem, setOrigem] = useState(editando?.origem || "estoque");
+  const [fornecedorId, setFornecedorId] = useState(editando?.fornecedorId || fornecedores[0]?.id || "");
+  const [foto, setFoto] = useState(editando?.foto || null);
+  const [carregandoFoto, setCarregandoFoto] = useState(false);
+  const [erroFoto, setErroFoto] = useState(null);
+  const urlFoto = useFoto(foto);
+  const arquivoRef = useRef(null);
+  const sugestoes = (campo) => [...new Set(estoque.map((i) => (i[campo] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const deFornecedor = origem === "fornecedor";
 
   const nomeTrim = nome.trim();
   const duplicado = estoque.some((i) => i.id !== editando?.id && normalizar(i.nome) === normalizar(nomeTrim));
-  const invalid = !nomeTrim || duplicado || !(varejo > 0) || !(atacado > 0) || !(lojista > 0) || qtd < 0 || min < 0;
+  const invalid = !nomeTrim || duplicado || !(varejo > 0) || !(atacado > 0) || !(lojista > 0) || qtd < 0 || min < 0 || (deFornecedor && !fornecedorId);
+
+  async function escolherFoto(arquivo) {
+    if (!arquivo) return;
+    setErroFoto(null);
+    setCarregandoFoto(true);
+    try {
+      setFoto(await salvarFoto(await comprimir(arquivo)));
+    } catch (e) {
+      setErroFoto(e.message || "Não foi possível usar esta foto.");
+    } finally {
+      setCarregandoFoto(false);
+    }
+  }
 
   function save() {
     if (invalid) return;
-    salvarItem({ nome: nomeTrim, qtd, custo, varejo, atacado, lojista, min }, editando);
+    const forn = fornecedores.find((f) => f.id === fornecedorId);
+    salvarItem(
+      {
+        nome: nomeTrim, marca: marca.trim(), tipo: tipo.trim(), qtd: deFornecedor ? 0 : qtd, custo,
+        custoVendedor: custoVendedor === "" ? null : n(custoVendedor), varejo, atacado, lojista, min: deFornecedor ? 0 : min,
+        origem, fornecedorId: deFornecedor ? fornecedorId : "", fornecedorNome: deFornecedor ? forn?.nome || "" : "", foto: foto || null,
+      },
+      isEdit ? editando : null
+    );
     fecharModal();
   }
 
   return (
-    <Modal title={isEdit ? "Editar produto" : "Novo produto"} onClose={fecharModal}>
-      <Field label="Nome do produto">
-        <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
-        {duplicado && <div className="text-xs text-red-600 mt-1">Já existe um produto com esse nome.</div>}
+    <Modal title={isEdit ? "Editar produto" : "Novo produto"} onClose={fecharModal} wide>
+      <div className="flex gap-4 items-start mb-4 flex-wrap sm:flex-nowrap">
+        <div className="shrink-0">
+          <button
+            type="button"
+            onClick={() => arquivoRef.current?.click()}
+            className="w-28 h-28 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 flex items-center justify-center overflow-hidden text-slate-400"
+            title="Escolher foto"
+          >
+            {carregandoFoto ? <Loader2 size={18} className="animate-spin" /> : urlFoto ? <img src={urlFoto} alt="" className="w-full h-full object-cover" /> : (
+              <span className="flex flex-col items-center gap-1 text-xs"><ImagePlus size={20} /> Foto</span>
+            )}
+          </button>
+          <input ref={arquivoRef} type="file" accept="image/*" className="hidden" onChange={(e) => { escolherFoto(e.target.files?.[0]); e.target.value = ""; }} />
+          {foto && <button type="button" onClick={() => setFoto(null)} className="block w-28 text-center text-[11px] text-slate-500 hover:text-red-600 mt-1">Remover foto</button>}
+          {erroFoto && <div className="w-28 text-[11px] text-red-600 mt-1">{erroFoto}</div>}
+        </div>
+        <div className="flex-1 min-w-0 w-full">
+          <Field label="Nome do produto">
+            <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
+            {duplicado && <div className="text-xs text-red-600 mt-1">Já existe um produto com esse nome.</div>}
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Marca / laboratório">
+              <input className={inputCls} list="sugestoes-marca" value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: Bayer" />
+              <datalist id="sugestoes-marca">{sugestoes("marca").map((m) => <option key={m} value={m} />)}</datalist>
+            </Field>
+            <Field label="Tipo">
+              <input className={inputCls} list="sugestoes-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} placeholder="Ex.: Analgésico" />
+              <datalist id="sugestoes-tipo">{sugestoes("tipo").map((m) => <option key={m} value={m} />)}</datalist>
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      <Field label="Onde fica o produto">
+        <Segmentado
+          valor={origem}
+          onChange={setOrigem}
+          opcoes={[{ valor: "estoque", label: "No meu estoque" }, { valor: "fornecedor", label: "No fornecedor (sob encomenda)" }]}
+        />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Quantidade em estoque" hint={isEdit ? "Altere só se contou o estoque." : null}>
-          <input type="number" min="0" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
+      {deFornecedor ? (
+        <Field label="Fornecedor" hint="Você vende e pede ao fornecedor. Não entra na conta do estoque.">
+          {fornecedores.length === 0 ? (
+            <div className="text-sm text-amber-700">Cadastre o fornecedor primeiro em Fornecedores.</div>
+          ) : (
+            <select className={inputCls} value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+              {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+          )}
         </Field>
-        <Field label="Estoque mínimo" hint="Avisa quando chegar nesse número.">
-          <input type="number" min="0" step="1" className={inputCls} value={min} onChange={(e) => setMin(Math.floor(n(e.target.value)))} />
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Quantidade em estoque" hint={isEdit ? "Altere só se contou o estoque." : null}>
+            <input type="number" min="0" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
+          </Field>
+          <Field label="Estoque mínimo" hint="Avisa quando chegar nesse número.">
+            <input type="number" min="0" step="1" className={inputCls} value={min} onChange={(e) => setMin(Math.floor(n(e.target.value)))} />
+          </Field>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Custo real (US$)" hint="Só você vê.">
+          <input type="number" step="0.01" min="0" className={inputCls} value={custo} onChange={(e) => setCusto(n(e.target.value))} />
+        </Field>
+        <Field label="Custo para vendedores (US$)" hint="O que os vendedores veem como custo. Em branco, não veem nenhum.">
+          <input type="number" step="0.01" min="0" className={inputCls} value={custoVendedor} onChange={(e) => setCustoVendedor(e.target.value)} placeholder="—" />
         </Field>
       </div>
-      <Field label="Custo unitário (US$)">
-        <input type="number" step="0.01" min="0" className={inputCls} value={custo} onChange={(e) => setCusto(n(e.target.value))} />
-      </Field>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Varejo (US$) *">
           <input type="number" step="0.01" min="0" className={inputCls} value={varejo} onChange={(e) => setVarejo(n(e.target.value))} />
@@ -391,7 +558,7 @@ export function ItemModal() {
       </div>
       {custo > 0 && (varejo > 0 || atacado > 0 || lojista > 0) && (
         <div className="text-xs text-slate-500 -mt-2 mb-4">
-          Margem: {[["varejo", varejo], ["atacado", atacado], ["lojista", lojista]]
+          Margem real: {[["varejo", varejo], ["atacado", atacado], ["lojista", lojista]]
             .map(([l, v]) => `${l} ${v > 0 ? Math.round(((v - custo) / v) * 100) : 0}%`)
             .join(" · ")}
         </div>
@@ -401,7 +568,7 @@ export function ItemModal() {
           Excluir produto
         </button>
       )}
-      <button onClick={save} disabled={invalid} className={btnPrimario + " w-full"}>
+      <button onClick={save} disabled={invalid || carregandoFoto} className={btnPrimario + " w-full"}>
         {isEdit ? "Salvar alterações" : "Cadastrar produto"}
       </button>
     </Modal>
@@ -482,7 +649,8 @@ export function ReceberVendaModal() {
 }
 
 export function PessoaModal({ tipo }) {
-  const { editando, salvarPessoa, fecharModal } = useApp();
+  const { editando, salvarPessoa, fecharModal, vendedores, ehVendedor } = useApp();
+  const [vendedorId, setVendedorId] = useState(editando?.vendedorId || "");
   const isCliente = tipo === "cliente";
   const [nome, setNome] = useState(editando?.nome || "");
   const [contato, setContato] = useState(editando?.contato || "");
@@ -502,6 +670,14 @@ export function PessoaModal({ tipo }) {
           <Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} />
         </Field>
       )}
+      {isCliente && !ehVendedor && (
+        <Field label="Vendedor responsável" hint="O vendedor vê e atende só os clientes dele.">
+          <select className={inputCls} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
+            <option value="">Nenhum (só o dono vê)</option>
+            {vendedores.filter((v) => v.ativo !== false || v.id === vendedorId).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </select>
+        </Field>
+      )}
       {isCliente && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="sm:col-span-2">
@@ -517,6 +693,7 @@ export function PessoaModal({ tipo }) {
         onClick={() => {
           const dados = { nome: nome.trim(), contato: contato.trim(), obs: obs.trim() };
           if (isCliente) Object.assign(dados, { tabela, endereco: endereco.trim(), cidade: cidade.trim() });
+          if (isCliente && !ehVendedor) dados.vendedorId = vendedorId;
           salvarPessoa(tipo, dados, editando);
           fecharModal();
         }}
@@ -540,7 +717,7 @@ export function CambioModal() {
 
 // Sincronização entre computadores, backup e instalação.
 export function DadosModal() {
-  const { sync, baixarBackup, restaurarBackup, fecharModal, instalar, setInstalar } = useApp();
+  const { sync, baixarBackup, restaurarBackup, fecharModal, instalar, setInstalar, ehVendedor } = useApp();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -607,7 +784,14 @@ export function DadosModal() {
                 {sync.sincronizando ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />} Sincronizar agora
               </button>
               <button
-                onClick={() => window.confirm("Sair da conta neste computador? Os dados continuam salvos aqui, mas deixam de sincronizar.") && db.sair()}
+                onClick={async () => {
+                  if (!window.confirm("Sair da conta neste computador? Os dados continuam guardados na nuvem, mas saem deste computador até alguém entrar de novo.")) return;
+                  try {
+                    await db.sair();
+                  } catch (e) {
+                    setMsg(e.message);
+                  }
+                }}
                 className={btnSecundario}
               >
                 <LogOut size={14} /> Sair
@@ -626,6 +810,7 @@ export function DadosModal() {
         )}
       </div>
 
+      {!ehVendedor && (
       <div className="mb-6">
         <div className="text-sm font-semibold text-slate-900 mb-1">Backup</div>
         <p className="text-sm text-slate-500 mb-3">Baixe uma cópia de todos os dados para guardar no computador ou em um pendrive.</p>
@@ -635,6 +820,7 @@ export function DadosModal() {
           <input ref={arquivo} type="file" accept="application/json,.json" className="hidden" onChange={restaurar} />
         </div>
       </div>
+      )}
 
       <div>
         <div className="text-sm font-semibold text-slate-900 mb-1">Usar como aplicativo</div>
@@ -663,7 +849,9 @@ export function VendedorModal() {
   const [comissao, setComissao] = useState(editando?.comissao ?? 5);
   const [meta, setMeta] = useState(editando?.meta ?? 0);
   const [ativo, setAtivo] = useState(editando?.ativo !== false);
-  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && meta >= 0;
+  const [email, setEmail] = useState(editando?.email || "");
+  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && meta >= 0 && emailOk;
   return (
     <Modal title={isEdit ? "Editar vendedor" : "Novo vendedor"} onClose={fecharModal}>
       <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
@@ -676,9 +864,16 @@ export function VendedorModal() {
           <input type="number" step="1" min="0" className={inputCls} value={meta} onChange={(e) => setMeta(n(e.target.value))} />
         </Field>
       </div>
+      <Field
+        label="E-mail de acesso ao sistema"
+        hint="Opcional. Com este e-mail o vendedor entra no sistema e vê só os clientes, vendas e orçamentos dele. Crie o login dele no Supabase com o mesmo e-mail."
+      >
+        <input type="email" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vendedor@email.com" />
+        {!emailOk && <div className="text-xs text-red-600 mt-1">E-mail inválido.</div>}
+      </Field>
       <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
         <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
-        Ativo (aparece na hora de registrar a venda)
+        Ativo (aparece na hora de registrar a venda e pode entrar no sistema)
       </label>
       {isEdit && (
         <button onClick={() => excluirVendedor(editando) && fecharModal()} className="w-full mb-3 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg py-2 text-sm font-medium">
@@ -687,7 +882,7 @@ export function VendedorModal() {
       )}
       <button
         disabled={!valido}
-        onClick={() => { salvarVendedor({ nome: nome.trim(), contato: contato.trim(), comissao, meta, ativo }, editando); fecharModal(); }}
+        onClick={() => { salvarVendedor({ nome: nome.trim(), contato: contato.trim(), comissao, meta, ativo, email: email.trim().toLowerCase() }, editando); fecharModal(); }}
         className={btnPrimario + " w-full"}
       >
         Salvar
@@ -707,17 +902,18 @@ export function ListaPrecosModal() {
   const [desmarcados, setDesmarcados] = useState(() => new Set());
   const [copiado, setCopiado] = useState(false);
   const [texto, setTexto] = useState(null); // null = gerado automaticamente
+  const [comFotos, setComFotos] = useState(false);
+  const temNuvem = !!urlPublica("x");
 
-  const termo = normalizar(filtro);
-  const candidatos = estoque.filter((i) => !soComEstoque || i.qtd > 0);
-  const visiveis = candidatos.filter((i) => !termo || normalizar(i.nome).includes(termo));
+  const candidatos = estoque.filter((i) => !soComEstoque || ehDeFornecedor(i) || i.qtd > 0);
+  const visiveis = candidatos.filter((i) => produtoCombina(i, filtro));
   const selecionados = candidatos.filter((i) => !desmarcados.has(i.id));
 
   const gerado = [
     `*Indufarma · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
     fmtDate(todayISO()),
     "",
-    ...selecionados.map((i) => `• ${i.nome}: ${fmtUSD(precoDe(i, tabela))}`),
+    ...selecionados.map((i) => `• ${i.nome}: ${fmtUSD(precoDe(i, tabela))}${comFotos && i.foto ? `\n  Foto: ${urlPublica(i.foto)}` : ""}`),
     "",
     "Valores em dólar, sujeitos a alteração. Para fazer seu pedido, é só responder esta mensagem.",
   ].join("\n");
@@ -774,6 +970,12 @@ export function ListaPrecosModal() {
               <input type="checkbox" checked={soComEstoque} onChange={(e) => { setSoComEstoque(e.target.checked); setTexto(null); }} className="rounded border-slate-300 text-emerald-700" />
               Só com estoque
             </label>
+            {temNuvem && (
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={comFotos} onChange={(e) => { setComFotos(e.target.checked); setTexto(null); }} className="rounded border-slate-300 text-emerald-700" />
+                Com link das fotos
+              </label>
+            )}
             <button className="text-emerald-700 hover:underline" onClick={() => { setDesmarcados(new Set()); setTexto(null); }}>Marcar todos</button>
             <button className="text-emerald-700 hover:underline" onClick={() => { setDesmarcados(new Set(candidatos.map((i) => i.id))); setTexto(null); }}>Desmarcar</button>
           </div>
@@ -881,6 +1083,121 @@ export function AgendarContatoModal() {
         ) : (
           <button onClick={fecharModal} className={btnSecundario}>Não agendar</button>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+// Envia um produto ao cliente: a foto e o preço da tabela dele.
+export function EnviarProdutoModal() {
+  const { editando: item, clientes, fecharModal } = useApp();
+  const [clienteId, setClienteId] = useState("");
+  const cliente = clientes.find((c) => c.id === clienteId);
+  const [tabela, setTabela] = useState("Varejo");
+  const [texto, setTexto] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+  const urlFoto = useFoto(item?.foto);
+  const linkFoto = urlPublica(item?.foto);
+  if (!item) return null;
+
+  const gerado = [
+    cliente ? `Olá, ${cliente.nome}!` : null,
+    `*${item.nome}*`,
+    descricaoProduto(item) || null,
+    `Preço${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}: *${fmtUSD(precoDe(item, tabela))}*`,
+    ehDeFornecedor(item) ? "Sob encomenda." : null,
+    "",
+    "Para pedir, é só responder esta mensagem.",
+  ].filter((l) => l !== null).join("\n");
+  const mensagem = texto ?? gerado;
+  const link = linkWhatsApp(cliente?.contato, mensagem);
+  const blobFoto = () => obterFoto(item.foto);
+
+  async function compartilhar() {
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const blob = await blobFoto();
+      if (!blob) throw new Error("A foto ainda não chegou a este computador.");
+      if (!podeCompartilhar(blob)) throw new Error("Este navegador não compartilha fotos. Use \"Copiar foto\".");
+      await compartilharFoto(blob, item.nome, mensagem);
+    } catch (e) {
+      if (e?.name !== "AbortError") setAviso(e.message || "Não foi possível compartilhar.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function copiar() {
+    setOcupado(true);
+    setAviso(null);
+    try {
+      const blob = await blobFoto();
+      if (!blob) throw new Error("A foto ainda não chegou a este computador.");
+      await copiarFoto(blob);
+      setAviso("Foto copiada. Abra a conversa no WhatsApp e cole com Ctrl+V.");
+    } catch (e) {
+      setAviso(e.message && !/clipboard|denied|not allowed/i.test(e.message) ? e.message : "O navegador não deixou copiar a foto. Clique com o botão direito na foto e escolha Copiar imagem.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <Modal title={`Enviar ao cliente · ${item.nome}`} onClose={fecharModal} wide>
+      <div className="flex gap-4 flex-wrap sm:flex-nowrap mb-4">
+        <div className="w-full sm:w-44 shrink-0">
+          {urlFoto ? (
+            <img src={urlFoto} alt={item.nome} className="w-full sm:w-44 aspect-square object-cover rounded-xl border border-slate-200" />
+          ) : (
+            <div className="w-full sm:w-44 aspect-square rounded-xl border border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center text-xs text-slate-400 gap-1">
+              <ImageIcon size={20} /> Sem foto
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <Field label="Cliente">
+            <select
+              className={inputCls}
+              value={clienteId}
+              onChange={(e) => {
+                setClienteId(e.target.value);
+                const c = clientes.find((x) => x.id === e.target.value);
+                setTabela(c?.tabela || "Varejo");
+                setTexto(null);
+              }}
+            >
+              <option value="">Escolher no WhatsApp</option>
+              {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </Field>
+          <Field label="Tabela de preço">
+            <Segmentado valor={tabela} onChange={(v) => { setTabela(v); setTexto(null); }} opcoes={TABELAS} />
+          </Field>
+        </div>
+      </div>
+      <Field label="Mensagem" hint="Você pode editar o texto antes de enviar.">
+        <textarea rows={5} className={inputCls + " font-mono text-xs"} value={mensagem} onChange={(e) => setTexto(e.target.value)} />
+      </Field>
+      {aviso && <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-3">{aviso}</div>}
+      <div className="flex gap-2 flex-wrap">
+        {item.foto && (
+          <>
+            <button onClick={compartilhar} disabled={ocupado} className={btnSecundario}><Share2 size={15} /> Compartilhar foto</button>
+            <button onClick={copiar} disabled={ocupado} className={btnSecundario}><Copy size={15} /> Copiar foto</button>
+          </>
+        )}
+        <a href={link || linkWhatsApp(null, mensagem)} target="_blank" rel="noreferrer" className={btnPrimario + " flex-1"}>
+          <MessageCircle size={15} /> Abrir conversa no WhatsApp
+        </a>
+      </div>
+      <div className="text-xs text-slate-400 mt-3">
+        {item.foto
+          ? "O WhatsApp não recebe foto por link. Copie a foto e cole na conversa, ou use Compartilhar foto e escolha o WhatsApp."
+          : "Este produto ainda não tem foto. Coloque uma em Editar produto."}
+        {linkFoto && item.foto ? " A foto também está na nuvem, se quiser mandar o link: " : ""}
+        {linkFoto && item.foto && <a href={linkFoto} target="_blank" rel="noreferrer" className="text-emerald-700 underline break-all">{linkFoto}</a>}
       </div>
     </Modal>
   );

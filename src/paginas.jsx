@@ -2,9 +2,10 @@ import React, { useMemo, useState } from "react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
-  ListChecks, ChevronLeft, ChevronRight, Target, CalendarClock,
+  ListChecks, ChevronLeft, ChevronRight, Target, CalendarClock, Search, X, Send, Image as ImageIcon,
 } from "lucide-react";
-import { useApp, CAIXA_META, DIAS_SEM_PEDIDO } from "./contexto.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor } from "./contexto.js";
+import { useFoto } from "./lib/fotos.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar, parseISO } from "./lib/format.js";
 import {
@@ -35,11 +36,11 @@ export function VisaoGeral() {
   const {
     cambio, vendas, vendasHoje, vendasDoDia, aReceber, totalContasPendentes, contasPendentes, valorEstoque, unidadesEstoque,
     clientes, fornecedores, caixas, estoque, estoqueBaixo, vendasACobrar, contasVencendo, abrirModal, setPage,
-    clientesSemPedido, registrarContato,
+    clientesSemPedido, registrarContato, ehVendedor,
   } = useApp();
   const top = useMemo(() => calcularMaisVendidos(vendas, estoque, diasAtras(29)).slice(0, 5), [vendas, estoque]);
   const maxTop = top[0]?.qtd || 1;
-  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || estoqueBaixo.length > 0 || clientesSemPedido.length > 0;
+  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || (!ehVendedor && estoqueBaixo.length > 0) || clientesSemPedido.length > 0;
   const hoje = todayISO();
 
   return (
@@ -63,9 +64,11 @@ export function VisaoGeral() {
             <div className="text-lg font-semibold">R$ {fmtNum(v)}</div>
           </div>
         ))}
-        <button onClick={() => abrirModal("cambio")} className="ml-auto bg-white/10 hover:bg-white/20 text-xs font-medium px-3 py-1.5 rounded-md">
-          Ajustar
-        </button>
+        {!ehVendedor && (
+          <button onClick={() => abrirModal("cambio")} className="ml-auto bg-white/10 hover:bg-white/20 text-xs font-medium px-3 py-1.5 rounded-md">
+            Ajustar
+          </button>
+        )}
       </div>
 
       {temLembretes && (
@@ -91,6 +94,8 @@ export function VisaoGeral() {
                 );
               })}
             </Lembretes>
+            {!ehVendedor && (
+            <>
             <Lembretes titulo={`A pagar (${contasVencendo.length})`} vazio="Nenhuma conta vencendo hoje.">
               {contasVencendo.slice(0, 6).map((c) => {
                 const atrasada = c.vencimento < hoje;
@@ -122,6 +127,8 @@ export function VisaoGeral() {
                 <button onClick={() => setPage("estoque")} className="text-xs font-medium text-amber-800 hover:underline">Ver todos</button>
               )}
             </Lembretes>
+            </>
+            )}
             <Lembretes titulo={`Clientes para contatar (${clientesSemPedido.length})`} vazio="Nenhum cliente para contatar hoje.">
               {clientesSemPedido.slice(0, 6).map((c) => (
                 <LinhaSemPedido key={c.id} c={c} registrarContato={registrarContato} abrirModal={abrirModal} />
@@ -134,14 +141,16 @@ export function VisaoGeral() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${ehVendedor ? "xl:grid-cols-3" : "xl:grid-cols-5"} gap-4 mb-6`}>
         <StatCard label="Vendas hoje" value={fmtUSD(vendasHoje)} sub={`${vendasDoDia.length} ${vendasDoDia.length === 1 ? "venda" : "vendas"}`} icon={DollarSign} />
         <StatCard label="A receber" value={fmtUSD(aReceber)} sub={`${vendasACobrar.length} ${vendasACobrar.length === 1 ? "venda" : "vendas"} a prazo`} icon={Clock} tom="amber" />
-        <StatCard label="Contas a pagar" value={fmtUSD(totalContasPendentes)} sub={`${contasPendentes.length} pendentes`} icon={Receipt} tom="violet" />
-        <StatCard label="Valor em estoque" value={fmtUSD(valorEstoque)} sub={`${unidadesEstoque} unidades · preço de custo`} icon={Package} tom="sky" />
-        <StatCard label="Clientes" value={clientes.length} sub={`${fornecedores.length} fornecedores`} icon={Users} tom="slate" />
+        {!ehVendedor && <StatCard label="Contas a pagar" value={fmtUSD(totalContasPendentes)} sub={`${contasPendentes.length} pendentes`} icon={Receipt} tom="violet" />}
+        {!ehVendedor && <StatCard label="Valor em estoque" value={fmtUSD(valorEstoque)} sub={`${unidadesEstoque} unidades · preço de custo`} icon={Package} tom="sky" />}
+        <StatCard label="Clientes" value={clientes.length} sub={ehVendedor ? "seus clientes" : `${fornecedores.length} fornecedores`} icon={Users} tom="slate" />
       </div>
 
+      {!ehVendedor && (
+      <>
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-sm font-semibold text-slate-900">Caixas e saldos</div>
@@ -156,6 +165,8 @@ export function VisaoGeral() {
           <CartaoCaixa key={k} k={k} valor={caixas[k]} equivale={k === "pix" || k === "real" ? caixas[k] / (cambio.chacoVenda || 1) : caixas[k]} />
         ))}
       </div>
+      </>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -216,6 +227,8 @@ export function VisaoGeral() {
             </ul>
           )}
 
+          {!ehVendedor && (
+          <>
           <div className="text-sm font-semibold text-slate-900 mt-6">Próximas contas</div>
           <div className="text-xs text-slate-400 mb-3">Vencimentos pendentes</div>
           {contasPendentes.length === 0 ? (
@@ -231,6 +244,8 @@ export function VisaoGeral() {
                 </li>
               ))}
             </ul>
+          )}
+          </>
           )}
         </Cartao>
       </div>
@@ -321,78 +336,170 @@ function CartaoCaixa({ k, valor, equivale, mostrarEquivale = true }) {
   );
 }
 
+// Miniatura da foto do produto (ou um quadrado vazio).
+export function MiniFoto({ id, tamanho = "w-10 h-10" }) {
+  const url = useFoto(id);
+  return (
+    <div className={`${tamanho} shrink-0 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300`}>
+      {url ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" /> : <ImageIcon size={14} />}
+    </div>
+  );
+}
+
+const selectCls = "text-sm border border-slate-200 bg-white rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-600";
+
 export function EstoquePage() {
-  const { estoque, unidadesEstoque, valorEstoque, estoqueBaixo, abrirModal, excluirItem, busca, setBusca } = useApp();
-  const [soBaixo, setSoBaixo] = useState(false);
-  const termo = normalizar(busca);
-  const lista = estoque.filter((i) => (!termo || normalizar(i.nome).includes(termo)) && (!soBaixo || i.qtd <= i.min));
+  const { estoque, unidadesEstoque, valorEstoque, estoqueBaixo, abrirModal, excluirItem, busca, setBusca, ehVendedor } = useApp();
+  const [mostrar, setMostrar] = useState("todos");
+  const [tipo, setTipo] = useState("");
+  const [marca, setMarca] = useState("");
+  const valores = (campo) => [...new Set(estoque.map((i) => (i[campo] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const tipos = valores("tipo");
+  const marcas = valores("marca");
+  const deFornecedor = estoque.filter(ehDeFornecedor).length;
+  const lista = estoque.filter(
+    (i) =>
+      produtoCombina(i, busca) &&
+      (mostrar !== "baixo" || (!ehDeFornecedor(i) && i.qtd <= i.min)) &&
+      (mostrar !== "fornecedor" || ehDeFornecedor(i)) &&
+      (!tipo || (i.tipo || "").trim() === tipo) &&
+      (!marca || (i.marca || "").trim() === marca)
+  );
+  const filtrando = busca || tipo || marca;
+  const colunas = ehVendedor ? 7 : 9;
   return (
     <TableShell
       title="Estoque"
-      sub={`${estoque.length} produtos · ${unidadesEstoque} unidades · ${fmtUSD(valorEstoque)} a preço de custo`}
+      sub={ehVendedor ? `${estoque.length} produtos` : `${estoque.length} produtos · ${unidadesEstoque} unidades · ${fmtUSD(valorEstoque)} a preço de custo`}
       action={
         <div className="flex items-center gap-2 flex-wrap">
           <Segmentado
-            valor={soBaixo ? "baixo" : "todos"}
-            onChange={(v) => setSoBaixo(v === "baixo")}
-            opcoes={[{ valor: "todos", label: "Todos" }, { valor: "baixo", label: `Repor (${estoqueBaixo.length})` }]}
+            valor={mostrar}
+            onChange={setMostrar}
+            opcoes={[
+              { valor: "todos", label: "Todos" },
+              { valor: "baixo", label: `Repor (${estoqueBaixo.length})` },
+              { valor: "fornecedor", label: `De fornecedor (${deFornecedor})` },
+            ]}
           />
           <button onClick={() => abrirModal("listaPrecos")} className={btnSecundario}>
             <ListChecks size={14} /> Lista de preços
           </button>
-          <button onClick={() => abrirModal("compra")} className={btnSecundario}>
-            <Plus size={14} /> Entrada (compra)
-          </button>
-          <button onClick={() => abrirModal("item")} className={btnPrimario}>
-            <Plus size={14} /> Novo produto
-          </button>
+          {!ehVendedor && (
+            <>
+              <button onClick={() => abrirModal("compra")} className={btnSecundario}>
+                <Plus size={14} /> Entrada (compra)
+              </button>
+              <button onClick={() => abrirModal("item")} className={btnPrimario}>
+                <Plus size={14} /> Novo produto
+              </button>
+            </>
+          )}
         </div>
       }
     >
-      {busca && (
-        <div className="px-5 py-2 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">
-          {lista.length} resultado(s) para "{busca}" · <button className="text-emerald-700 hover:underline" onClick={() => setBusca("")}>limpar busca</button>
+      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[14rem]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Pesquisar pelo nome, marca ou tipo..."
+            className="w-full pl-9 pr-8 py-2 text-sm border border-slate-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600"
+          />
+          {busca && (
+            <button onClick={() => setBusca("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label="Limpar pesquisa">
+              <X size={14} />
+            </button>
+          )}
         </div>
-      )}
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={selectCls} aria-label="Tipo">
+          <option value="">Todos os tipos</option>
+          {tipos.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <select value={marca} onChange={(e) => setMarca(e.target.value)} className={selectCls} aria-label="Marca">
+          <option value="">Todas as marcas</option>
+          {marcas.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        {filtrando && (
+          <span className="text-xs text-slate-500">
+            {lista.length} de {estoque.length} · <button className="text-emerald-700 hover:underline" onClick={() => { setBusca(""); setTipo(""); setMarca(""); }}>limpar</button>
+          </span>
+        )}
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50/50">
-            <Th>Produto</Th><Th right>Qtd</Th><Th right>Mínimo</Th><Th right>Custo un.</Th><Th right>Varejo</Th><Th right>Atacado</Th><Th right>Lojista</Th><Th right>Valor total</Th><Th right>Ações</Th>
+            <Th>Produto</Th><Th right>Qtd</Th>
+            {ehVendedor ? <Th right>Custo</Th> : <><Th right>Custo real</Th><Th right>Custo vend.</Th></>}
+            <Th right>Varejo</Th><Th right>Atacado</Th><Th right>Lojista</Th>
+            {!ehVendedor && <Th right>Valor total</Th>}
+            <Th right>Ações</Th>
           </tr>
         </thead>
         <tbody>
           {lista.map((i) => {
-            const baixo = i.qtd <= i.min;
+            const fornecedor = ehDeFornecedor(i);
+            const baixo = !fornecedor && i.qtd <= i.min;
             return (
               <tr key={i.id} className={linhaCls}>
                 <Td className="font-medium text-slate-900">
-                  <div className="flex items-center gap-2">
-                    {i.nome}
-                    {baixo && (
-                      <span className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-1.5 py-0.5 ${i.qtd <= 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
-                        <AlertTriangle size={11} /> {i.qtd <= 0 ? "Esgotado" : "Repor"}
-                      </span>
-                    )}
+                  <div className="flex items-center gap-3 min-w-[15rem]">
+                    <MiniFoto id={i.foto} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {i.nome}
+                        {baixo && (
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-1.5 py-0.5 ${i.qtd <= 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                            <AlertTriangle size={11} /> {i.qtd <= 0 ? "Esgotado" : "Repor"}
+                          </span>
+                        )}
+                      </div>
+                      {descricaoProduto(i) && <div className="text-xs font-normal text-slate-400">{descricaoProduto(i)}</div>}
+                    </div>
                   </div>
                 </Td>
-                <Td right className={baixo ? (i.qtd <= 0 ? "text-red-600 font-semibold" : "text-amber-700 font-semibold") : "text-slate-700"}>{i.qtd}</Td>
-                <Td right className="text-slate-500">{i.min}</Td>
-                <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.custo)}</Td>
+                {fornecedor ? (
+                  <Td right className="text-slate-500">
+                    <div className="text-xs font-medium text-sky-700 whitespace-nowrap">Sob encomenda</div>
+                    <div className="text-xs text-slate-400">{ehVendedor ? "Fornecedor" : i.fornecedorNome || "Fornecedor"}</div>
+                  </Td>
+                ) : (
+                  <>
+                    <Td right className={baixo ? (i.qtd <= 0 ? "text-red-600 font-semibold" : "text-amber-700 font-semibold") : "text-slate-700"}>
+                      {i.qtd}
+                      <div className="text-xs font-normal text-slate-400 whitespace-nowrap">mín. {i.min}</div>
+                    </Td>
+                  </>
+                )}
+                {ehVendedor ? (
+                  <Td right className="text-slate-600 whitespace-nowrap">{i.custoVendedor != null ? fmtUSD(i.custoVendedor) : "—"}</Td>
+                ) : (
+                  <>
+                    <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.custo)}</Td>
+                    <Td right className="text-slate-400 whitespace-nowrap">{i.custoVendedor != null ? fmtUSD(i.custoVendedor) : "—"}</Td>
+                  </>
+                )}
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.varejo)}</Td>
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.atacado)}</Td>
                 <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.lojista ?? i.atacado)}</Td>
-                <Td right className="text-slate-900 font-medium whitespace-nowrap">{fmtUSD(Math.max(0, i.qtd) * i.custo)}</Td>
+                {!ehVendedor && <Td right className="text-slate-900 font-medium whitespace-nowrap">{fornecedor ? "—" : fmtUSD(Math.max(0, i.qtd) * i.custo)}</Td>}
                 <Td right>
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => abrirModal("item", i)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
-                    <button onClick={() => excluirItem(i)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                    <button onClick={() => abrirModal("enviarProduto", i)} className={btnIcone} title="Enviar ao cliente (foto e preço)"><Send size={15} /></button>
+                    {!ehVendedor && (
+                      <>
+                        <button onClick={() => abrirModal("item", i)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                        <button onClick={() => excluirItem(i)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                      </>
+                    )}
                   </div>
                 </Td>
               </tr>
             );
           })}
           {lista.length === 0 && (
-            <Vazio colSpan={9}>{estoque.length === 0 ? "Nenhum produto cadastrado." : "Nenhum produto encontrado."}</Vazio>
+            <Vazio colSpan={colunas}>{estoque.length === 0 ? "Nenhum produto cadastrado." : "Nenhum produto encontrado."}</Vazio>
           )}
         </tbody>
       </table>
@@ -637,10 +744,13 @@ export function PessoasPage({ tipo }) {
   const data = isCliente ? app.clientes : app.fornecedores;
   const [q, setQ] = useState("");
   const [soSemPedido, setSoSemPedido] = useState(false);
+  const [doVendedor, setDoVendedor] = useState("todos");
   const semPedido = new Set(isCliente ? app.clientesSemPedido.map((c) => c.id) : []);
   const termo = normalizar(q);
+  const nomeVendedor = (id) => app.vendedores.find((v) => v.id === id)?.nome;
   const lista = data
     .filter((p) => !termo || normalizar(p.nome).includes(termo) || normalizar(p.contato).includes(termo))
+    .filter((p) => doVendedor === "todos" || (p.vendedorId || "") === doVendedor)
     .filter((p) => !soSemPedido || semPedido.has(p.id))
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   const resumo = useMemo(() => {
@@ -669,6 +779,13 @@ export function PessoasPage({ tipo }) {
               opcoes={[{ valor: "todos", label: "Todos" }, { valor: "sem", label: `Para contatar (${semPedido.size})` }]}
             />
           )}
+          {isCliente && !app.ehVendedor && app.vendedores.length > 0 && (
+            <select value={doVendedor} onChange={(e) => setDoVendedor(e.target.value)} aria-label="Vendedor" className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600">
+              <option value="todos">Todos os vendedores</option>
+              <option value="">Sem vendedor</option>
+              {app.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+            </select>
+          )}
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar..." className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 w-44 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
           <button onClick={() => app.abrirModal(tipo)} className={btnPrimario}>
             <Plus size={14} /> Novo
@@ -690,7 +807,10 @@ export function PessoasPage({ tipo }) {
             const r = resumo[p.id];
             return (
               <tr key={p.id} className={linhaCls}>
-                <Td className="font-medium text-slate-900">{p.nome}</Td>
+                <Td className="font-medium text-slate-900">
+                  {p.nome}
+                  {isCliente && !app.ehVendedor && <div className="text-xs font-normal text-slate-400">{nomeVendedor(p.vendedorId) ? `Vendedor: ${nomeVendedor(p.vendedorId)}` : "Sem vendedor"}</div>}
+                </Td>
                 <Td className="text-slate-600">{p.contato || "—"}</Td>
                 {isCliente && (
                   <>
@@ -827,7 +947,7 @@ export function CambioForm({ onSave, initial }) {
 const nomeMes = (ano, mes) => new Date(ano, mes, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
 export function VendedoresPage() {
-  const { vendedores, vendas, abrirModal } = useApp();
+  const { vendedores, vendas, abrirModal, ehVendedor } = useApp();
   const hoje = new Date();
   const [ref, setRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
   const prefixo = `${ref.ano}-${String(ref.mes + 1).padStart(2, "0")}`;
@@ -863,7 +983,7 @@ export function VendedoresPage() {
           <div className="text-sm font-semibold text-slate-900 w-40 text-center first-letter:uppercase">{nomeMes(ref.ano, ref.mes)}</div>
           <button onClick={() => mudarMes(1)} className={btnIcone} aria-label="Próximo mês"><ChevronRight size={18} /></button>
         </div>
-        <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>
+        {!ehVendedor && <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -890,7 +1010,7 @@ export function VendedoresPage() {
                     <div className="text-sm font-semibold text-slate-900">{vd.nome}</div>
                     <div className="text-xs text-slate-400">Comissão de {fmtNum(vd.comissao, 1)}%{vd.ativo === false ? " · inativo" : ""}</div>
                   </div>
-                  <button onClick={() => abrirModal("vendedor", vd)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                  {!ehVendedor && <button onClick={() => abrirModal("vendedor", vd)} className={btnIcone} title="Editar"><Pencil size={15} /></button>}
                 </div>
                 <div className="text-2xl font-semibold text-slate-900 tracking-tight">{fmtUSD(total)}</div>
                 <div className="text-xs text-slate-400 mb-4">{qtd} {qtd === 1 ? "venda" : "vendas"} · {fmtUSD(recebido)} já recebido</div>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Plus, Trash2, Pencil, MessageCircle, Copy, Check, Truck, FileText, Send, PackageCheck, Clock } from "lucide-react";
-import { useApp, TABELAS, PAGAMENTOS, precoDe } from "./contexto.js";
+import { useApp, TABELAS, PAGAMENTOS, precoDe, produtoCombina, ehDeFornecedor } from "./contexto.js";
+import { ProdutoAvulso, CampoVendedor } from "./modais.jsx";
 import { fmtUSD, fmtDate, todayISO, isoLocal, parseISO, normalizar, uid } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import {
@@ -159,7 +160,7 @@ export function OrcamentosPage() {
 }
 
 export function FretePage() {
-  const { vendas, orcamentos, freteiros, clientes, abrirModal, atualizarEntrega, excluirFreteiro } = useApp();
+  const { vendas, orcamentos, freteiros, clientes, abrirModal, atualizarEntrega, excluirFreteiro, ehVendedor } = useApp();
   const [aba, setAba] = useState("entregas");
   const [filtro, setFiltro] = useState("ativos");
   const hoje = todayISO();
@@ -176,6 +177,7 @@ export function FretePage() {
           onChange={setAba}
           opcoes={[
             { valor: "entregas", label: `Entregas (${aEnviar + emTransito})` },
+            { valor: "transito", label: `Em trânsito (${emTransito})` },
             { valor: "cotacoes", label: `Cotações (${cotacoes.length})` },
             { valor: "freteiros", label: `Freteiros (${freteiros.length})` },
           ]}
@@ -285,8 +287,10 @@ export function FretePage() {
         </TableShell>
       )}
 
+      {aba === "transito" && <EmTransito />}
+
       {aba === "freteiros" && (
-        <TableShell title="Freteiros" sub="Quem recebe os pedidos de cotação" action={<button onClick={() => abrirModal("freteiro")} className={btnPrimario}><Plus size={14} /> Novo freteiro</button>}>
+        <TableShell title="Freteiros" sub="Quem recebe os pedidos de cotação" action={!ehVendedor && <button onClick={() => abrirModal("freteiro")} className={btnPrimario}><Plus size={14} /> Novo freteiro</button>}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
@@ -301,10 +305,12 @@ export function FretePage() {
                   <Td className="text-slate-500">{f.obs || "—"}</Td>
                   <Td right className="text-slate-600">{vendas.filter((v) => v.frete?.freteiroId === f.id).length}</Td>
                   <Td right>
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => abrirModal("freteiro", f)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
-                      <button onClick={() => excluirFreteiro(f)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
-                    </div>
+                    {!ehVendedor && (
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => abrirModal("freteiro", f)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                        <button onClick={() => excluirFreteiro(f)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                      </div>
+                    )}
                   </Td>
                 </tr>
               ))}
@@ -314,6 +320,116 @@ export function FretePage() {
         </TableShell>
       )}
     </>
+  );
+}
+
+// Produtos que já saíram com o freteiro e ainda não foram entregues, separados por freteiro,
+// com o botão para cobrar a situação da entrega pelo WhatsApp.
+function mensagemCobranca(nomeFreteiro, entregas) {
+  const linhas = entregas.map(({ v, previsao }) => {
+    const destino = [v.clienteNome, v.frete.cidade].filter(Boolean).join(", ");
+    return `• Pedido #${v.numero} para ${destino}: enviado em ${fmtDate(v.frete.enviadoEm)}${previsao ? `, previsão ${fmtDate(previsao)}` : ""}\n  ${(v.itens || []).map((l) => `${l.itemNome} × ${l.qtd}`).join(", ")}`;
+  });
+  return [
+    `Olá, ${nomeFreteiro}! Aqui é da Indufarma. Pode me passar a situação ${entregas.length === 1 ? "desta entrega" : "destas entregas"}?`,
+    "",
+    ...linhas,
+    "",
+    "Se já entregou, me avise por favor. Obrigado!",
+  ].join("\n");
+}
+
+function EmTransito() {
+  const { vendas, freteiros, atualizarEntrega } = useApp();
+  const hoje = todayISO();
+  const grupos = new Map();
+  for (const v of vendas) {
+    if (v.frete?.status !== "Enviado") continue;
+    const previsao = v.frete.enviadoEm ? somarDias(v.frete.enviadoEm, v.frete.prazoDias) : null;
+    const atraso = previsao && previsao < hoje ? Math.round((parseISO(hoje) - parseISO(previsao)) / 86400000) : 0;
+    const chave = v.frete.freteiroId || v.frete.freteiroNome || "?";
+    const g = grupos.get(chave) || { chave, nome: v.frete.freteiroNome || "Freteiro", contato: freteiros.find((f) => f.id === v.frete.freteiroId)?.contato, itens: [] };
+    g.itens.push({ v, previsao, atraso });
+    grupos.set(chave, g);
+  }
+  const lista = [...grupos.values()]
+    .map((g) => ({ ...g, itens: g.itens.sort((a, b) => b.atraso - a.atraso || String(a.previsao).localeCompare(String(b.previsao))), atrasadas: g.itens.filter((x) => x.atraso > 0).length }))
+    .sort((a, b) => b.atrasadas - a.atrasadas || a.nome.localeCompare(b.nome));
+
+  if (lista.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-10 text-center text-sm text-slate-400">
+        Nenhum produto em trânsito. Quando marcar uma entrega como enviada, ela aparece aqui até ser entregue.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      {lista.map((g) => {
+        const linkTodas = linkWhatsApp(g.contato, mensagemCobranca(g.nome, g.itens));
+        return (
+          <div key={g.chave} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between gap-2 flex-wrap px-5 py-4 border-b border-slate-100">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 flex items-center gap-2"><Truck size={15} className="text-slate-400" /> {g.nome}</div>
+                <div className="text-xs text-slate-400">
+                  {g.itens.length} {g.itens.length === 1 ? "entrega a caminho" : "entregas a caminho"}
+                  {g.atrasadas > 0 && <span className="text-red-600 font-medium"> · {g.atrasadas} {g.atrasadas === 1 ? "atrasada" : "atrasadas"}</span>}
+                </div>
+              </div>
+              {linkTodas ? (
+                <a
+                  href={linkTodas}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => g.itens.forEach(({ v }) => atualizarEntrega(v.id, { cobradoEm: hoje }))}
+                  className={btnContorno}
+                >
+                  <MessageCircle size={13} /> {g.itens.length === 1 ? "Cobrar freteiro" : "Cobrar todas"}
+                </a>
+              ) : (
+                <span className="text-xs text-amber-700">Freteiro sem WhatsApp</span>
+              )}
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {g.itens.map(({ v, previsao, atraso }) => {
+                const link = linkWhatsApp(g.contato, mensagemCobranca(g.nome, [{ v, previsao }]));
+                return (
+                  <li key={v.id} className="px-5 py-3 text-sm">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900">
+                          #{v.numero} · {v.clienteNome}
+                          {v.frete.cidade && <span className="font-normal text-slate-400"> · {v.frete.cidade}</span>}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">{(v.itens || []).map((l) => `${l.itemNome} × ${l.qtd}`).join(", ")}</div>
+                        <div className={`text-xs mt-1 ${atraso > 0 ? "text-red-600 font-medium" : "text-slate-400"}`}>
+                          Enviado em {fmtDate(v.frete.enviadoEm)}
+                          {previsao && ` · previsão ${fmtDate(previsao)}`}
+                          {atraso > 0 && ` · ${atraso === 1 ? "1 dia" : `${atraso} dias`} de atraso`}
+                          {v.frete.cobradoEm && <span className="text-slate-400 font-normal"> · cobrado em {fmtDate(v.frete.cobradoEm)}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {link && g.itens.length > 1 && (
+                          <a href={link} target="_blank" rel="noreferrer" onClick={() => atualizarEntrega(v.id, { cobradoEm: hoje })} className={btnContorno} title="Cobrar só esta entrega">
+                            <MessageCircle size={13} /> Cobrar
+                          </a>
+                        )}
+                        <button onClick={() => atualizarEntrega(v.id, { status: "Entregue", entregueEm: hoje })} className={btnContorno}>
+                          <PackageCheck size={13} /> Entregue
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -357,6 +473,7 @@ export function OrcamentoModal() {
   const [itemId, setItemId] = useState(estoque[0]?.id || "");
   const [qtd, setQtd] = useState(1);
   const [filtro, setFiltro] = useState("");
+  const [modo, setModo] = useState("cadastro");
   const [itens, setItens] = useState(original?.itens || []);
   const [obs, setObs] = useState(original?.obs || "");
   const [precisa, setPrecisa] = useState(original?.frete?.precisa || false);
@@ -366,9 +483,9 @@ export function OrcamentoModal() {
   const [escolhidos, setEscolhidos] = useState(() => new Set(original?.frete?.cotacoes ? original.frete.cotacoes.map((c) => c.freteiroId) : freteiros.map((f) => f.id)));
 
   const cliente = clientes.find((c) => c.id === clienteId);
-  const termo = normalizar(filtro);
-  const opcoes = estoque.filter((i) => !termo || normalizar(i.nome).includes(termo));
-  const item = opcoes.find((i) => i.id === itemId);
+  const opcoes = estoque.filter((i) => produtoCombina(i, filtro));
+  // Ao filtrar, o primeiro produto encontrado já fica escolhido.
+  const item = opcoes.find((i) => i.id === itemId) || opcoes[0];
   const precoUnit = precoDe(item, tabela);
   const total = itens.reduce((s, l) => s + l.subtotal, 0);
   const valido = clienteId && itens.length > 0 && (!precisa || (endereco.trim() && escolhidos.size > 0));
@@ -415,21 +532,27 @@ export function OrcamentoModal() {
             {[...clientes].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
         </Field>
-        <Field label="Vendedor">
-          <select className={inputCls} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
-            <option value="">Sem vendedor</option>
-            {vendedores.filter((v) => v.ativo !== false).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
-          </select>
-        </Field>
+        <CampoVendedor valor={vendedorId} onChange={setVendedorId} />
       </div>
 
       <div className="border border-slate-200 rounded-xl p-4 mb-4 bg-slate-50">
-        <div className="text-xs font-semibold text-slate-600 mb-3">Adicionar produto</div>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <div className="text-xs font-semibold text-slate-600">Adicionar produto</div>
+          <Segmentado valor={modo} onChange={setModo} opcoes={[{ valor: "cadastro", label: "Do cadastro" }, { valor: "avulso", label: "Não cadastrado" }]} />
+        </div>
+        {modo === "avulso" ? (
+          <ProdutoAvulso
+            tabela={tabela}
+            rotulo="Adicionar ao orçamento"
+            aoAdicionar={(l) => setItens((x) => [...x, { key: uid(), itemId: l.itemId, itemNome: l.nome, qtd: l.qtd, tipoVenda: l.tipoVenda, precoUnit: l.precoUnit, subtotal: l.precoUnit * l.qtd, ...(l.avulso ? { avulso: true } : {}) }])}
+          />
+        ) : (
+        <>
         <Field label="Produto">
           <input className={inputCls + " mb-2"} placeholder="Filtrar produtos..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
-          <select className={inputCls} value={opcoes.some((o) => o.id === itemId) ? itemId : ""} onChange={(e) => setItemId(e.target.value)}>
-            {!opcoes.some((o) => o.id === itemId) && <option value="">Selecione...</option>}
-            {opcoes.map((i) => <option key={i.id} value={i.id}>{i.nome} ({i.qtd} em estoque)</option>)}
+          <select className={inputCls} value={item?.id || ""} onChange={(e) => setItemId(e.target.value)}>
+            {!item && <option value="">Nenhum produto encontrado</option>}
+            {opcoes.map((i) => <option key={i.id} value={i.id}>{i.nome}{i.marca ? ` · ${i.marca}` : ""} ({ehDeFornecedor(i) ? "sob encomenda" : `${i.qtd} em estoque`})</option>)}
           </select>
         </Field>
         <Field label="Tabela de preço"><Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} /></Field>
@@ -437,10 +560,12 @@ export function OrcamentoModal() {
           <Field label="Quantidade"><input type="number" min="1" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} /></Field>
           <Field label="Valor unitário"><input disabled className={inputCls} value={item ? fmtUSD(precoUnit) : ""} /></Field>
         </div>
-        {item && qtd > item.qtd && <div className="text-xs text-amber-700 -mt-2 mb-3">Atenção: só há {item.qtd} em estoque.</div>}
+        {item && !ehDeFornecedor(item) && qtd > item.qtd && <div className="text-xs text-amber-700 -mt-2 mb-3">Atenção: só há {item.qtd} em estoque.</div>}
         <button type="button" onClick={adicionar} disabled={!item || !(qtd > 0)} className={btnSecundario + " w-full border-emerald-700/40 text-emerald-800"}>
           <Plus size={14} /> Adicionar ao orçamento
         </button>
+        </>
+        )}
       </div>
 
       {itens.length > 0 && (
@@ -449,8 +574,8 @@ export function OrcamentoModal() {
             <div key={l.key || idx} className="flex items-center justify-between px-3 py-2 text-sm">
               <div>
                 <div className="font-medium text-slate-900">{l.itemNome} × {l.qtd}</div>
-                <div className="text-xs text-slate-400">{l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
-                {(estoque.find((i) => i.id === l.itemId)?.qtd ?? 0) < l.qtd && (
+                <div className="text-xs text-slate-400">{l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
+                {l.itemId && !ehDeFornecedor(estoque.find((i) => i.id === l.itemId)) && (estoque.find((i) => i.id === l.itemId)?.qtd ?? 0) < l.qtd && (
                   <div className="text-xs text-amber-700">Só {estoque.find((i) => i.id === l.itemId)?.qtd ?? 0} em estoque agora</div>
                 )}
               </div>

@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { fmtBRL } from "./lib/format.js";
+import { fmtBRL, normalizar } from "./lib/format.js";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -31,3 +31,16 @@ export const precoDe = (item, tabela) => {
 
 // Depois de quantos dias sem pedido o cliente aparece nos lembretes.
 export const DIAS_SEM_PEDIDO = 7;
+
+// Busca de produto: todas as palavras digitadas precisam aparecer no nome, na marca ou no tipo.
+// Ex.: "dipi 500" encontra "Dipirona 500mg".
+export const produtoCombina = (item, busca) => {
+  const palavras = normalizar(busca).split(/\s+/).filter(Boolean);
+  if (palavras.length === 0) return true;
+  const texto = normalizar([item.nome, item.marca, item.tipo].filter(Boolean).join(" "));
+  return palavras.every((p) => texto.includes(p));
+};
+export const descricaoProduto = (item) => [item?.marca, item?.tipo].filter(Boolean).join(" · ");
+
+// Produto de fornecedor: não fica no estoque da farmácia, é pedido ao fornecedor quando vende.
+export const ehDeFornecedor = (item) => item?.origem === "fornecedor";

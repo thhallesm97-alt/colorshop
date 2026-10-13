@@ -1,5 +1,18 @@
 // Dados de exemplo, usados só na versão de demonstração (VITE_DEMO=1).
 import { diasAtras } from "./format.js";
+import { salvarFoto } from "./fotos.js";
+
+// Marca, tipo e cor da "foto" de exemplo de cada produto.
+const DETALHES = {
+  p1: ["Prati-Donaduzzi", "Analgésico", "#0f766e"],
+  p2: ["EMS", "Analgésico", "#b91c1c"],
+  p3: ["Medley", "Anti-inflamatório", "#7c3aed"],
+  p4: ["Eurofarma", "Antibiótico", "#1d4ed8"],
+  p5: ["EMS", "Anti-hipertensivo", "#c2410c"],
+  p6: ["Medley", "Antiácido", "#0369a1"],
+  p7: ["Equiplex", "Soro", "#0891b2"],
+  p8: ["La Roche-Posay", "Dermocosmético", "#ca8a04"],
+};
 
 export function dadosDemo() {
   const estoque = [
@@ -11,32 +24,41 @@ export function dadosDemo() {
     ["p6", "Omeprazol 20mg (28 caps.)", 18, 1.8, 4.6, 3.9, 8],
     ["p7", "Soro fisiológico 500ml", 40, 0.7, 1.9, 1.5, 12],
     ["p8", "Protetor solar FPS 50", 9, 6.5, 14.9, 12.5, 4],
-  ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({ id, nome, qtd, custo, varejo, atacado, lojista: Math.round((atacado - (atacado - custo) * 0.3) * 100) / 100, min, baseEm: 0 }));
+  ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({
+    id, nome, qtd, custo, custoVendedor: Math.round(custo * 1.15 * 100) / 100, varejo, atacado,
+    lojista: Math.round((atacado - (atacado - custo) * 0.3) * 100) / 100, min, baseEm: 0,
+    marca: DETALHES[id][0], tipo: DETALHES[id][1], origem: "estoque", foto: ["p1", "p3", "p6", "p8"].includes(id) ? "demo-" + id : null,
+  }));
+  // Produtos que ficam no fornecedor e são vendidos sob encomenda.
+  estoque.push(
+    { id: "p9", nome: "Insulina NPH 10ml", qtd: 0, custo: 9.5, custoVendedor: 11, varejo: 18.9, atacado: 16.5, lojista: 15.2, min: 0, baseEm: 0, marca: "Novo Nordisk", tipo: "Antidiabético", origem: "fornecedor", fornecedorId: "f2", fornecedorNome: "Farma Import CDE", foto: null },
+    { id: "p10", nome: "Colágeno hidrolisado 300g", qtd: 0, custo: 7.2, custoVendedor: 8.5, varejo: 16.0, atacado: 13.5, lojista: 12.4, min: 0, baseEm: 0, marca: "Sanavita", tipo: "Suplemento", origem: "fornecedor", fornecedorId: "f1", fornecedorNome: "Distribuidora Guaraní", foto: null },
+  );
   const clientes = [
-    { id: "c1", nome: "María González", contato: "+595 981 234 567", endereco: "Av. Mcal. López 1520, Villa Morra", cidade: "Asunción" },
-    { id: "c2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado", endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación" },
-    { id: "c3", nome: "Ana Duarte", contato: "+595 991 300 450" },
-    { id: "c4", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista", endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo" },
-    { id: "c5", nome: "Jorge Villalba", contato: "+595 975 410 880", proximoContato: diasAtras(0), notaContato: "Disse que faz o pedido hoje", ultimoContato: diasAtras(4) },
+    { id: "c1", vendedorId: "s1", nome: "María González", contato: "+595 981 234 567", endereco: "Av. Mcal. López 1520, Villa Morra", cidade: "Asunción" },
+    { id: "c2", vendedorId: "s2", nome: "Carlos Benítez", contato: "+595 971 555 012", tabela: "Atacado", endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación" },
+    { id: "c3", vendedorId: "s2", nome: "Ana Duarte", contato: "+595 991 300 450" },
+    { id: "c4", vendedorId: "s1", nome: "Farmacia San Roque", contato: "+595 981 777 222", tabela: "Lojista", endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo" },
+    { id: "c5", vendedorId: "s1", nome: "Jorge Villalba", contato: "+595 975 410 880", proximoContato: diasAtras(0), notaContato: "Disse que faz o pedido hoje", ultimoContato: diasAtras(4) },
   ];
   const fornecedores = [
     { id: "f1", nome: "Distribuidora Guaraní", contato: "+595 21 600 100", obs: "Entrega às terças" },
     { id: "f2", nome: "Farma Import CDE", contato: "+595 61 500 200" },
   ];
   const vendedores = [
-    { id: "s1", nome: "Lucas Ortiz", contato: "+595 981 100 200", comissao: 5, meta: 1500, ativo: true },
-    { id: "s2", nome: "Patricia Rojas", contato: "+595 982 300 400", comissao: 4, meta: 1200, ativo: true },
+    { id: "s1", nome: "Lucas Ortiz", contato: "+595 981 100 200", comissao: 5, meta: 1500, ativo: true, email: "lucas@exemplo.com" },
+    { id: "s2", nome: "Patricia Rojas", contato: "+595 982 300 400", comissao: 4, meta: 1200, ativo: true, email: "patricia@exemplo.com" },
   ];
   const linha = (pid, qtd, tipo = "Varejo") => {
     const p = estoque.find((x) => x.id === pid);
-    const precoUnit = tipo === "Atacado" ? p.atacado : p.varejo;
+    const precoUnit = tipo === "Atacado" ? p.atacado : tipo === "Lojista" ? p.lojista : p.varejo;
     return { itemId: pid, itemNome: p.nome, qtd, tipoVenda: tipo, precoUnit, subtotal: precoUnit * qtd };
   };
   const vendasBrutas = [
     [0, "c1", [["p1", 2], ["p6", 1]], "PIX", "À vista", "s1"],
     [0, "", [["p7", 3]], "Dólar", "À vista", "s2"],
     [1, "c4", [["p5", 40, "Lojista"], ["p1", 60, "Lojista"]], "PIX", "A prazo", "s1"],
-    [3, "c1", [["p3", 1], ["p8", 1]], "Real", "À vista", "s2"],
+    [3, "c1", [["p3", 1], ["p8", 1], ["p9", 2]], "Real", "À vista", "s1"],
     [4, "c1", [["p1", 3], ["p2", 2]], "PIX", "À vista", "s1"],
     [6, "", [["p6", 2]], "Dólar", "À vista", ""],
     [9, "c2", [["p4", 10, "Atacado"], ["p1", 20, "Atacado"]], "USDT", "A prazo", "s2"],
@@ -53,6 +75,21 @@ export function dadosDemo() {
       status: condicao === "À vista" ? "Pago" : "Pendente", data: diasAtras(dias), ts: 0,
     };
   });
+  // Duas entregas a caminho, uma delas atrasada.
+  const fretes = {
+    v7: { freteiroId: "t1", freteiroNome: "Transportes Itapúa", valor: 25, prazoDias: 2, endereco: "Ruta PY02 km 12", cidade: "Coronel Oviedo", status: "Enviado", enviadoEm: diasAtras(4) },
+    v3: { freteiroId: "t1", freteiroNome: "Transportes Itapúa", valor: 18, prazoDias: 3, endereco: "Calle Tomás Romero Pereira 340", cidade: "Encarnación", status: "Enviado", enviadoEm: diasAtras(1) },
+  };
+  for (const v of vendas) {
+    if (!fretes[v.id]) continue;
+    v.valorProdutos = v.valor;
+    v.frete = fretes[v.id];
+    v.valor += v.frete.valor;
+  }
+  // Um produto vendido sem cadastro.
+  const v1 = vendas.find((v) => v.id === "v9");
+  v1.itens.push({ itemId: null, itemNome: "Termômetro digital (pedido especial)", qtd: 1, tipoVenda: "Varejo", precoUnit: 6.5, subtotal: 6.5, avulso: true });
+  v1.valor += 6.5;
   const movimentos = [
     { id: "m1", caixa: "dolar", tipo: "Entrada", valor: 350, descricao: "Troco inicial", data: diasAtras(20) },
     { id: "m2", caixa: "pix", tipo: "Entrada", valor: 1200, descricao: "Saldo inicial", data: diasAtras(20) },
@@ -83,4 +120,38 @@ export function dadosDemo() {
     },
   ];
   return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras: [], freteiros, orcamentos };
+}
+
+// Desenha "fotos" de exemplo (uma caixa de remédio com o nome) e guarda neste navegador.
+export async function fotosDemo() {
+  const produtos = { p1: "Dipirona 500mg", p3: "Ibuprofeno 400mg", p6: "Omeprazol 20mg", p8: "Protetor solar FPS 50" };
+  for (const [id, nome] of Object.entries(produtos)) {
+    const [marca, tipo, cor] = DETALHES[id];
+    const c = document.createElement("canvas");
+    c.width = c.height = 600;
+    const g = c.getContext("2d");
+    g.fillStyle = "#f1f5f9";
+    g.fillRect(0, 0, 600, 600);
+    g.fillStyle = "rgba(15,23,42,0.08)";
+    g.fillRect(118, 168, 380, 300);
+    g.fillStyle = "#ffffff";
+    g.fillRect(100, 150, 380, 300);
+    g.fillStyle = cor;
+    g.fillRect(100, 150, 380, 90);
+    g.fillRect(100, 420, 380, 30);
+    g.fillStyle = "#ffffff";
+    g.font = "600 30px system-ui, sans-serif";
+    g.fillText(marca, 124, 206);
+    g.fillStyle = "#0f172a";
+    g.font = "700 34px system-ui, sans-serif";
+    const [l1, ...resto] = nome.split(" ");
+    g.fillText(l1, 124, 300);
+    g.font = "500 28px system-ui, sans-serif";
+    g.fillText(resto.join(" "), 124, 342);
+    g.fillStyle = "#64748b";
+    g.font = "400 22px system-ui, sans-serif";
+    g.fillText(tipo, 124, 392);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+    await salvarFoto(blob, "demo-" + id);
+  }
 }

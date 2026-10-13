@@ -100,8 +100,8 @@ export function Th({ children, right }) {
   return <th className={`px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 ${right ? "text-right" : "text-left"}`}>{children}</th>;
 }
 
-export function Td({ children, className = "", right }) {
-  return <td className={`px-5 py-3 align-top ${right ? "text-right" : ""} ${className}`}>{children}</td>;
+export function Td({ children, className = "", right, colSpan }) {
+  return <td colSpan={colSpan} className={`px-5 py-3 align-top ${right ? "text-right" : ""} ${className}`}>{children}</td>;
 }
 
 export function Vazio({ colSpan, children }) {

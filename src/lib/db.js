@@ -8,6 +8,7 @@
 
 import { createStore, entries, setMany, set, clear } from "idb-keyval";
 import { createClient } from "@supabase/supabase-js";
+import { enviarFotosPendentes } from "./fotos.js";
 
 // Ordem em que cada coleção é listada: "desc" = mais recente primeiro.
 export const COLECOES = {
@@ -37,9 +38,29 @@ let meta = { cursor: 0 };
 let ultimoO = 0;
 const proximaOrdem = () => (ultimoO = Math.max(Date.now(), ultimoO + 1));
 
-const estado = { sincronizando: false, ultimaSync: null, erro: null, erroLocal: null };
+const estado = { sincronizando: false, ultimaSync: null, erro: null, erroLocal: null, acesso: lerAcessoSalvo() };
+
+// Quem está usando: "dono" vê tudo; "vendedor" vê só os próprios clientes e vendas.
+// Fica guardado para o sistema abrir certo mesmo sem internet.
+function lerAcessoSalvo() {
+  try {
+    return JSON.parse(localStorage.getItem("indufarma-acesso") || "null");
+  } catch (e) {
+    return null;
+  }
+}
+function guardarAcesso(a) {
+  estado.acesso = a;
+  try {
+    if (a) localStorage.setItem("indufarma-acesso", JSON.stringify(a));
+    else localStorage.removeItem("indufarma-acesso");
+  } catch (e) {
+    /* opcional */
+  }
+}
 const ouvintes = new Set();
 let aoReceber = null;
+let aoReiniciar = null;
 
 function avisar() {
   const s = status();
@@ -52,6 +73,10 @@ export function ouvirStatus(fn) {
 }
 export function aoReceberDaNuvem(fn) {
   aoReceber = fn;
+}
+// Chamado quando os dados deste computador são apagados (troca de login).
+export function aoApagarLocal(fn) {
+  aoReiniciar = fn;
 }
 
 function falhaLocal(e) {
@@ -183,6 +208,7 @@ function iniciarNuvem() {
   sb.auth.onAuthStateChange((_evento, s) => {
     const entrou = !sessao && s;
     sessao = s;
+    if (!s) guardarAcesso(null);
     avisar();
     if (entrou) sincronizar();
   });
@@ -212,6 +238,8 @@ export function status() {
     email: sessao?.user?.email || null,
     pendentes,
     ...estado,
+    papel: !sb ? "dono" : estado.acesso?.papel || null,
+    vendedorId: estado.acesso?.vendedorId || null,
   };
 }
 
@@ -221,8 +249,27 @@ export async function entrar(email, senha) {
   if (error) throw new Error(error.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : error.message);
 }
 
+// Ao sair, os dados deste computador são apagados (ficam na nuvem), para que outra pessoa
+// que entre aqui não veja o que não deve. Antes, tudo precisa ter sido enviado.
 export async function sair() {
-  if (sb) await sb.auth.signOut();
+  if (!sb) return;
+  await sincronizar();
+  const pendentes = status().pendentes;
+  if (pendentes > 0) {
+    throw new Error(`Ainda há ${pendentes} alteração(ões) não enviada(s) para a nuvem. Conecte à internet e tente de novo.`);
+  }
+  await sb.auth.signOut();
+  await esvaziarLocal();
+}
+
+async function esvaziarLocal() {
+  await clear(store);
+  registros.clear();
+  for (const k of Object.keys(snap)) delete snap[k];
+  meta = { cursor: 0 };
+  guardarAcesso(null);
+  if (aoReiniciar) aoReiniciar();
+  avisar();
 }
 
 export async function sincronizar() {
@@ -238,8 +285,19 @@ export async function sincronizar() {
   estado.sincronizando = true;
   avisar();
   try {
+    if (!(await conferirAcesso())) return;
     await enviar();
+    if (estado.acesso.papel === "dono") {
+      try {
+        await enviarFotosPendentes(sb);
+        estado.erroFotos = null;
+      } catch (e) {
+        console.error("Falha ao enviar fotos", e);
+        estado.erroFotos = "Algumas fotos ainda não foram para a nuvem.";
+      }
+    }
     await receber();
+    if (estado.acesso.papel === "vendedor") await receberEstoqueVendedor();
     estado.ultimaSync = Date.now();
     estado.erro = null;
   } catch (e) {
@@ -254,6 +312,54 @@ export async function sincronizar() {
       sincronizar();
     }
   }
+}
+
+// Descobre se este login é do dono ou de um vendedor. Se outra pessoa entrou neste
+// computador, apaga primeiro os dados da pessoa anterior.
+async function conferirAcesso() {
+  const email = sessao?.user?.email?.toLowerCase() || null;
+  if (meta.email && email && meta.email !== email) await esvaziarLocal();
+  const { data, error } = await sb.rpc("meu_acesso");
+  if (error) throw error;
+  const linha = Array.isArray(data) ? data[0] : data;
+  if (!linha?.papel) {
+    guardarAcesso({ papel: "sem_acesso", email });
+    estado.erro = "Este login ainda não tem acesso. Peça ao dono para colocar seu e-mail no cadastro de vendedores.";
+    return false;
+  }
+  const antes = estado.acesso;
+  guardarAcesso({ papel: linha.papel, vendedorId: linha.vendedor_id || null, email });
+  if (!meta.email) {
+    meta = { ...meta, email };
+    await set(META, meta, store);
+  }
+  if (!antes || antes.papel !== linha.papel || antes.vendedorId !== (linha.vendedor_id || null)) avisar();
+  return true;
+}
+
+// O vendedor recebe o estoque já com a quantidade atual calculada e sem o custo real.
+async function receberEstoqueVendedor() {
+  const { data, error } = await sb.rpc("estoque_vendedor");
+  if (error) throw error;
+  const agora = Date.now();
+  const vistos = new Set();
+  const grava = [];
+  for (const l of data || []) {
+    const k = "estoque/" + l.id;
+    vistos.add(k);
+    const r = { c: "estoque", id: l.id, d: l.dados, u: agora, o: Number(l.criado_em), x: 0, p: 0 };
+    registros.set(k, r);
+    grava.push([k, r]);
+  }
+  for (const [k, r] of registros) {
+    if (r.c === "estoque" && !r.x && !vistos.has(k)) {
+      const n = { ...r, d: null, x: 1, p: 0, u: agora };
+      registros.set(k, n);
+      grava.push([k, n]);
+    }
+  }
+  if (grava.length) await setMany(grava, store);
+  if (aoReceber) aoReceber(["estoque"]);
 }
 
 async function enviar() {
