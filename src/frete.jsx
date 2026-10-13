@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Plus, Trash2, Pencil, MessageCircle, Copy, Check, Truck, FileText, Send, PackageCheck, Clock } from "lucide-react";
 import { useApp, TABELAS, PAGAMENTOS, CAIXA_META, precoDe, produtoCombina, ehDeFornecedor, precoFoiAlterado } from "./contexto.js";
 import { ProdutoAvulso, CampoVendedor } from "./modais.jsx";
-import { fmtUSD, fmtDate, todayISO, isoLocal, parseISO, normalizar, uid } from "./lib/format.js";
+import { fmtUSD, fmtBRL, fmtDate, todayISO, isoLocal, parseISO, normalizar, uid } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import {
   Modal, Field, inputCls, btnPrimario, btnSecundario, btnContorno, btnIcone, btnIconePerigo, TableShell, Th, Td, Vazio, Segmentado, Badge, Cartao,
@@ -41,13 +41,17 @@ export function mensagemFreteiro(o, f) {
     .join("\n");
 }
 
-export function mensagemCliente(o, comNomes = false) {
+// Valor em reais pelo câmbio de compra (o nome do câmbio não vai para o cliente).
+const emReais = (usd, taxa) => (taxa > 0 ? ` (${fmtBRL(n(usd) * taxa)})` : "");
+
+export function mensagemCliente(o, comNomes = false, cambio = null) {
+  const taxa = n(cambio?.chacoCompra);
   const linhas = [
     `Olá, ${o.clienteNome || "tudo bem"}! Segue o seu orçamento #${o.numero} da Indufarma:`,
     "",
     ...o.itens.map((l) => `• ${l.itemNome} × ${l.qtd}: ${fmtUSD(l.subtotal)}`),
     "",
-    `*Total dos produtos: ${fmtUSD(o.total)}*`,
+    `*Total dos produtos: ${fmtUSD(o.total)}*${emReais(o.total, taxa)}`,
   ];
   const respondidas = (o.frete?.precisa ? o.frete.cotacoes || [] : []).filter((c) => c.status === "Respondido");
   if (respondidas.length) {
@@ -57,11 +61,11 @@ export function mensagemCliente(o, comNomes = false) {
       .sort((a, b) => n(a.valor) - n(b.valor))
       .forEach((c, i) => {
         const prazo = dias(c.prazoDias);
-        linhas.push(`${i + 1}) ${comNomes ? c.nome + ": " : ""}frete ${fmtUSD(c.valor)}, chega em ${prazo} · total ${fmtUSD(n(o.total) + n(c.valor))}`);
+        linhas.push(`${i + 1}) ${comNomes ? c.nome + ": " : ""}frete ${fmtUSD(c.valor)}, chega em ${prazo} · total ${fmtUSD(n(o.total) + n(c.valor))}${emReais(n(o.total) + n(c.valor), taxa)}`);
       });
     linhas.push("", "Qual opção você prefere?");
   }
-  linhas.push("", "Valores em dólar.");
+  linhas.push("", taxa > 0 ? `Valores em dólar. Câmbio de hoje: ${fmtBRL(taxa)} por dólar.` : "Valores em dólar.");
   return linhas.join("\n");
 }
 
@@ -785,7 +789,7 @@ export function OrcamentoModal() {
 }
 
 export function OrcamentoDetalheModal() {
-  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, aprovarPrecoOrcamento, marcarOrcamentoVisto, abrirModal, fecharModal, setPage, ehVendedor } = useApp();
+  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, aprovarPrecoOrcamento, marcarOrcamentoVisto, abrirModal, fecharModal, setPage, ehVendedor, cambio } = useApp();
   const o = orcamentos.find((x) => x.id === editando?.id);
   const [pagamento, setPagamento] = useState("PIX");
   const [condicao, setCondicao] = useState("À vista");
@@ -800,7 +804,7 @@ export function OrcamentoDetalheModal() {
   const escolhida = cotacoes.find((c) => c.freteiroId === o.frete?.escolhida);
   const aberto = o.status === "Aberto";
   const aguardando = aberto && o.aprovacaoPreco === "Pendente";
-  const msgCliente = mensagemCliente(o, comNomes);
+  const msgCliente = mensagemCliente(o, comNomes, cambio);
   const linkCliente = linkWhatsApp(cliente?.contato, msgCliente);
   const msgGrupo = o.frete?.precisa ? mensagemFreteiro(o, { nome: "pessoal" }) : "";
 

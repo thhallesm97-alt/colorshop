@@ -61,7 +61,6 @@ export function VisaoGeral() {
         {[
           ["TCR · BRL/USDT", cambio.tcr],
           ["Chaco · compra USD", cambio.chacoCompra],
-          ["Chaco · venda USD", cambio.chacoVenda],
         ].map(([l, v]) => (
           <div key={l}>
             <div className="text-[10px] uppercase tracking-wide text-emerald-300">{l}</div>
@@ -196,7 +195,7 @@ export function VisaoGeral() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {Object.keys(CAIXA_META).map((k) => (
-          <CartaoCaixa key={k} k={k} valor={caixas[k]} equivale={k === "pix" || k === "real" ? caixas[k] / (cambio.chacoVenda || 1) : caixas[k]} />
+          <CartaoCaixa key={k} k={k} valor={caixas[k]} equivale={k === "pix" || k === "real" ? caixas[k] / (cambio.chacoCompra || 1) : caixas[k]} />
         ))}
       </div>
       </>
@@ -979,23 +978,19 @@ export function CambioPage() {
 export function CambioForm({ onSave, initial }) {
   const [tcr, setTcr] = useState(initial.tcr);
   const [cc, setCc] = useState(initial.chacoCompra);
-  const [cv, setCv] = useState(initial.chacoVenda);
   const [salvo, setSalvo] = useState(false);
-  const valido = tcr > 0 && cc > 0 && cv > 0;
+  const valido = tcr > 0 && cc > 0;
   return (
     <div>
       <Field label="TCR · BRL/USDT">
         <input type="number" step="0.01" min="0" className={inputCls} value={tcr} onChange={(e) => { setTcr(Number(e.target.value)); setSalvo(false); }} />
       </Field>
-      <Field label="Chaco · compra USD">
+      <Field label="Chaco · compra USD" hint="Usada no orçamento enviado ao cliente (valor em reais) e para converter os caixas em reais (PIX e Real) para dólar.">
         <input type="number" step="0.01" min="0" className={inputCls} value={cc} onChange={(e) => { setCc(Number(e.target.value)); setSalvo(false); }} />
-      </Field>
-      <Field label="Chaco · venda USD" hint="Usada para converter os caixas em reais (PIX e Real) para dólar.">
-        <input type="number" step="0.01" min="0" className={inputCls} value={cv} onChange={(e) => { setCv(Number(e.target.value)); setSalvo(false); }} />
       </Field>
       <button
         disabled={!valido}
-        onClick={() => { onSave({ tcr, chacoCompra: cc, chacoVenda: cv, modo: "Manual" }); setSalvo(true); }}
+        onClick={() => { onSave({ tcr, chacoCompra: cc, modo: "Manual" }); setSalvo(true); }}
         className={btnPrimario + " w-full"}
       >
         {salvo ? "Taxas salvas" : "Salvar taxas"}
