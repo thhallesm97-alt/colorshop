@@ -38,6 +38,7 @@ function carregarBanco() {
     if (vazio) {
       const antigos = lerDadosAntigosDoNavegador();
       if (antigos) await db.importar(normalizar(antigos));
+      else if (import.meta.env.VITE_DEMO) await db.importar((await import("./lib/demo.js")).dadosDemo());
     }
   })());
 }
@@ -424,7 +425,7 @@ export default function IndufarmaApp() {
   const sidebar = (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full">
       <div className="flex items-center gap-3 px-5 py-5">
-        <img src="/icone.svg" alt="" className="w-9 h-9" />
+        <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-9 h-9" />
         <div>
           <div className="text-base font-semibold leading-tight tracking-tight">Indufarma</div>
           <div className="text-[11px] text-slate-400 leading-tight">Gestão da farmácia</div>
@@ -514,6 +515,12 @@ export default function IndufarmaApp() {
                 </button>
               </div>
             </div>
+
+            {import.meta.env.VITE_DEMO && (
+              <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                Demonstração com dados de exemplo. O que você mudar aqui fica só neste navegador e não afeta a farmácia. Excluir e baixar backup não funcionam nesta prévia.
+              </div>
+            )}
 
             {sync.erroLocal && (
               <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{sync.erroLocal}</div>

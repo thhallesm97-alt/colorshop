@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [
     react(),
     // Deixa o sistema abrir sem internet e permite instalar como aplicativo no computador.
+    !process.env.VITE_DEMO &&
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["icone.svg", "icone-192.png", "icone-512.png"],
