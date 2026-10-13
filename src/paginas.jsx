@@ -1,0 +1,739 @@
+import React, { useMemo, useState } from "react";
+import { Field, inputCls } from "./ui.jsx";
+import {
+  Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
+} from "lucide-react";
+import { useApp, CAIXA_META } from "./contexto.js";
+import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar } from "./lib/format.js";
+import {
+  Badge, StatCard, TableShell, Th, Td, Vazio, Cartao, Segmentado, btnPrimario, btnSecundario, btnContorno, btnIcone, btnIconePerigo,
+} from "./ui.jsx";
+
+const linhaCls = "border-b border-slate-50 hover:bg-slate-50/60";
+
+// Ranking de produtos vendidos desde a data informada (inclusive).
+function calcularMaisVendidos(vendas, estoque, desde) {
+  const atual = new Map(estoque.map((i) => [i.id, i]));
+  const r = new Map();
+  for (const v of vendas) {
+    if (desde && v.data < desde) continue;
+    for (const l of v.itens || []) {
+      const chave = atual.has(l.itemId) ? l.itemId : "nome:" + normalizar(l.itemNome);
+      const e = r.get(chave) || { chave, nome: atual.get(l.itemId)?.nome || l.itemNome || "—", qtd: 0, total: 0, vendas: 0, estoque: atual.get(l.itemId)?.qtd };
+      e.qtd += Number(l.qtd || 0);
+      e.total += Number(l.subtotal || 0);
+      e.vendas += 1;
+      r.set(chave, e);
+    }
+  }
+  return [...r.values()].sort((a, b) => b.qtd - a.qtd || b.total - a.total);
+}
+
+export function VisaoGeral() {
+  const {
+    cambio, vendas, vendasHoje, vendasDoDia, aReceber, totalContasPendentes, contasPendentes, valorEstoque, unidadesEstoque,
+    clientes, fornecedores, caixas, estoque, estoqueBaixo, vendasACobrar, contasVencendo, abrirModal, setPage,
+  } = useApp();
+  const top = useMemo(() => calcularMaisVendidos(vendas, estoque, diasAtras(29)).slice(0, 5), [vendas, estoque]);
+  const maxTop = top[0]?.qtd || 1;
+  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || estoqueBaixo.length > 0;
+  const hoje = todayISO();
+
+  return (
+    <>
+      <div className="bg-gradient-to-r from-emerald-900 to-emerald-800 text-white rounded-xl px-6 py-4 mb-6 flex flex-wrap items-center gap-x-8 gap-y-3 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />
+          <div>
+            <div className="text-sm font-semibold">Câmbio {cambio.modo === "Manual" ? "manual" : cambio.modo}</div>
+            <div className="text-xs text-emerald-200">Valores definidos por você</div>
+          </div>
+        </div>
+        <div className="h-8 w-px bg-emerald-700 hidden sm:block" />
+        {[
+          ["TCR · BRL/USDT", cambio.tcr],
+          ["Chaco · compra USD", cambio.chacoCompra],
+          ["Chaco · venda USD", cambio.chacoVenda],
+        ].map(([l, v]) => (
+          <div key={l}>
+            <div className="text-[10px] uppercase tracking-wide text-emerald-300">{l}</div>
+            <div className="text-lg font-semibold">R$ {fmtNum(v)}</div>
+          </div>
+        ))}
+        <button onClick={() => abrirModal("cambio")} className="ml-auto bg-white/10 hover:bg-white/20 text-xs font-medium px-3 py-1.5 rounded-md">
+          Ajustar
+        </button>
+      </div>
+
+      {temLembretes && (
+        <div className="border border-amber-200 bg-amber-50/70 rounded-xl p-5 mb-6">
+          <div className="text-sm font-semibold text-amber-900">Lembretes de hoje</div>
+          <div className="text-xs text-amber-700 mb-4 first-letter:uppercase">{fmtDateLong()}</div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <Lembretes titulo={`A receber (${vendasACobrar.length})`} vazio="Ninguém a cobrar no momento.">
+              {vendasACobrar.slice(0, 6).map((v) => {
+                const cliente = clientes.find((c) => c.id === v.clienteId);
+                return (
+                  <li key={v.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{v.clienteNome}</div>
+                      <div className="text-xs text-slate-400">Venda #{v.numero} · {fmtDate(v.data)}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-medium text-slate-900">{fmtUSD(v.valor)}</span>
+                      <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
+                      <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </Lembretes>
+            <Lembretes titulo={`A pagar (${contasVencendo.length})`} vazio="Nenhuma conta vencendo hoje.">
+              {contasVencendo.slice(0, 6).map((c) => {
+                const atrasada = c.vencimento < hoje;
+                return (
+                  <li key={c.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{c.nome}</div>
+                      <div className={`text-xs ${atrasada ? "text-red-600" : "text-slate-400"}`}>{atrasada ? `Atrasada desde ${fmtDate(c.vencimento)}` : "Vence hoje"}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-medium text-slate-900">{fmtUSD(c.valor)}</span>
+                      <button onClick={() => abrirModal("pagarConta", c)} className={btnContorno}>Pago</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </Lembretes>
+            <Lembretes titulo={`Repor estoque (${estoqueBaixo.length})`} vazio="Nenhum produto no mínimo.">
+              {estoqueBaixo.slice(0, 6).map((i) => (
+                <li key={i.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-900 truncate">{i.nome}</div>
+                    <div className="text-xs text-slate-400">Mínimo: {i.min} un.</div>
+                  </div>
+                  <span className={`font-semibold shrink-0 ${i.qtd <= 0 ? "text-red-600" : "text-amber-700"}`}>{i.qtd <= 0 ? "Esgotado" : `${i.qtd} un.`}</span>
+                </li>
+              ))}
+              {estoqueBaixo.length > 6 && (
+                <button onClick={() => setPage("estoque")} className="text-xs font-medium text-amber-800 hover:underline">Ver todos</button>
+              )}
+            </Lembretes>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+        <StatCard label="Vendas hoje" value={fmtUSD(vendasHoje)} sub={`${vendasDoDia.length} ${vendasDoDia.length === 1 ? "venda" : "vendas"}`} icon={DollarSign} />
+        <StatCard label="A receber" value={fmtUSD(aReceber)} sub={`${vendasACobrar.length} ${vendasACobrar.length === 1 ? "venda" : "vendas"} a prazo`} icon={Clock} tom="amber" />
+        <StatCard label="Contas a pagar" value={fmtUSD(totalContasPendentes)} sub={`${contasPendentes.length} pendentes`} icon={Receipt} tom="violet" />
+        <StatCard label="Valor em estoque" value={fmtUSD(valorEstoque)} sub={`${unidadesEstoque} unidades · preço de custo`} icon={Package} tom="sky" />
+        <StatCard label="Clientes" value={clientes.length} sub={`${fornecedores.length} fornecedores`} icon={Users} tom="slate" />
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Caixas e saldos</div>
+          <div className="text-xs text-slate-400">Valores registrados nos lançamentos</div>
+        </div>
+        <button onClick={() => abrirModal("movimento")} className={btnSecundario}>
+          <Plus size={14} /> Movimento
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        {Object.keys(CAIXA_META).map((k) => (
+          <CartaoCaixa key={k} k={k} valor={caixas[k]} equivale={k === "pix" || k === "real" ? caixas[k] / (cambio.chacoVenda || 1) : caixas[k]} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Vendas recentes</div>
+              <div className="text-xs text-slate-400">Últimos lançamentos</div>
+            </div>
+            <button onClick={() => setPage("vendas")} className="text-xs font-medium text-emerald-700 hover:underline">Ver todas</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-y border-slate-100 bg-slate-50/50">
+                  <Th>Venda</Th><Th>Cliente</Th><Th>Itens</Th><Th right>Valor</Th><Th>Pagamento</Th><Th>Status</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendas.slice(0, 6).map((v) => (
+                  <tr key={v.id} className={linhaCls}>
+                    <Td>
+                      <div className="font-medium text-slate-900">#{v.numero}</div>
+                      <div className="text-xs text-slate-400">{fmtDate(v.data)}</div>
+                    </Td>
+                    <Td className="text-slate-600">{v.clienteNome}</Td>
+                    <Td className="text-slate-600">{v.itens?.length > 1 ? `${v.itens.length} produtos` : v.itens?.[0]?.itemNome || "—"}</Td>
+                    <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(v.valor)}</Td>
+                    <Td className="text-slate-600">{v.pagamento} · {v.condicao}</Td>
+                    <Td><Badge status={v.status} /></Td>
+                  </tr>
+                ))}
+                {vendas.length === 0 && <Vazio colSpan={6}>Nenhuma venda registrada.</Vazio>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <Cartao
+          title="Mais vendidos"
+          sub="Últimos 30 dias"
+          action={<button onClick={() => setPage("maisVendidos")} className="text-xs font-medium text-emerald-700 hover:underline">Ver relatório</button>}
+        >
+          {top.length === 0 ? (
+            <div className="text-sm text-slate-400 text-center py-6">Nenhuma venda nos últimos 30 dias.</div>
+          ) : (
+            <ul className="space-y-3">
+              {top.map((p, idx) => (
+                <li key={p.chave}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-slate-700 truncate"><span className="text-slate-400 mr-1.5">{idx + 1}.</span>{p.nome}</span>
+                    <span className="font-medium text-slate-900 shrink-0 ml-2">{p.qtd} un.</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${(p.qtd / maxTop) * 100}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="text-sm font-semibold text-slate-900 mt-6">Próximas contas</div>
+          <div className="text-xs text-slate-400 mb-3">Vencimentos pendentes</div>
+          {contasPendentes.length === 0 ? (
+            <div className="text-sm text-slate-400 text-center py-4">Nenhuma conta pendente.</div>
+          ) : (
+            <ul className="space-y-2.5">
+              {[...contasPendentes].sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 4).map((c) => (
+                <li key={c.id} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-700 truncate">{c.nome}</span>
+                  <span className={`font-medium shrink-0 ml-2 ${c.vencimento < hoje ? "text-red-600" : "text-slate-500"}`}>
+                    {fmtUSD(c.valor)} · {fmtDate(c.vencimento)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Cartao>
+      </div>
+    </>
+  );
+}
+
+function Lembretes({ titulo, vazio, children }) {
+  const itens = React.Children.toArray(children);
+  return (
+    <div>
+      <div className="text-xs font-semibold text-amber-800 mb-2">{titulo}</div>
+      {itens.length === 0 ? <div className="text-sm text-amber-700/60">{vazio}</div> : <ul className="space-y-2">{itens}</ul>}
+    </div>
+  );
+}
+
+// Abre o WhatsApp (aplicativo ou WhatsApp Web) com a mensagem já escrita.
+export function LinkWhatsApp({ contato, texto }) {
+  const numero = String(contato || "").replace(/\D/g, "");
+  if (numero.length < 8) return null;
+  return (
+    <a
+      href={`https://wa.me/${numero}?text=${encodeURIComponent(texto)}`}
+      target="_blank"
+      rel="noreferrer"
+      title="Enviar mensagem no WhatsApp"
+      className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50"
+    >
+      <MessageCircle size={15} />
+    </a>
+  );
+}
+
+function CartaoCaixa({ k, valor, equivale, mostrarEquivale = true }) {
+  const m = CAIXA_META[k];
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-semibold ${m.color}`}>{m.symbol}</div>
+        <div>
+          <div className="text-sm font-medium text-slate-900">{m.label}</div>
+          <div className="text-xs text-slate-400">{m.sub}</div>
+        </div>
+      </div>
+      <div className={`text-lg font-semibold ${valor < 0 ? "text-red-600" : "text-slate-900"}`}>{m.format(valor)}</div>
+      {mostrarEquivale && <div className="text-xs text-slate-400 mt-0.5">Equivale a {fmtUSD(equivale)}</div>}
+    </div>
+  );
+}
+
+export function EstoquePage() {
+  const { estoque, unidadesEstoque, valorEstoque, estoqueBaixo, abrirModal, excluirItem, busca, setBusca } = useApp();
+  const [soBaixo, setSoBaixo] = useState(false);
+  const termo = normalizar(busca);
+  const lista = estoque.filter((i) => (!termo || normalizar(i.nome).includes(termo)) && (!soBaixo || i.qtd <= i.min));
+  return (
+    <TableShell
+      title="Estoque"
+      sub={`${estoque.length} produtos · ${unidadesEstoque} unidades · ${fmtUSD(valorEstoque)} a preço de custo`}
+      action={
+        <div className="flex items-center gap-2 flex-wrap">
+          <Segmentado
+            valor={soBaixo ? "baixo" : "todos"}
+            onChange={(v) => setSoBaixo(v === "baixo")}
+            opcoes={[{ valor: "todos", label: "Todos" }, { valor: "baixo", label: `Repor (${estoqueBaixo.length})` }]}
+          />
+          <button onClick={() => abrirModal("compra")} className={btnSecundario}>
+            <Plus size={14} /> Entrada (compra)
+          </button>
+          <button onClick={() => abrirModal("item")} className={btnPrimario}>
+            <Plus size={14} /> Novo produto
+          </button>
+        </div>
+      }
+    >
+      {busca && (
+        <div className="px-5 py-2 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">
+          {lista.length} resultado(s) para "{busca}" · <button className="text-emerald-700 hover:underline" onClick={() => setBusca("")}>limpar busca</button>
+        </div>
+      )}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/50">
+            <Th>Produto</Th><Th right>Qtd</Th><Th right>Mínimo</Th><Th right>Custo un.</Th><Th right>Varejo</Th><Th right>Atacado</Th><Th right>Valor total</Th><Th right>Ações</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {lista.map((i) => {
+            const baixo = i.qtd <= i.min;
+            return (
+              <tr key={i.id} className={linhaCls}>
+                <Td className="font-medium text-slate-900">
+                  <div className="flex items-center gap-2">
+                    {i.nome}
+                    {baixo && (
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-1.5 py-0.5 ${i.qtd <= 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                        <AlertTriangle size={11} /> {i.qtd <= 0 ? "Esgotado" : "Repor"}
+                      </span>
+                    )}
+                  </div>
+                </Td>
+                <Td right className={baixo ? (i.qtd <= 0 ? "text-red-600 font-semibold" : "text-amber-700 font-semibold") : "text-slate-700"}>{i.qtd}</Td>
+                <Td right className="text-slate-500">{i.min}</Td>
+                <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.custo)}</Td>
+                <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.varejo)}</Td>
+                <Td right className="text-slate-600 whitespace-nowrap">{fmtUSD(i.atacado)}</Td>
+                <Td right className="text-slate-900 font-medium whitespace-nowrap">{fmtUSD(Math.max(0, i.qtd) * i.custo)}</Td>
+                <Td right>
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => abrirModal("item", i)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => excluirItem(i)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                  </div>
+                </Td>
+              </tr>
+            );
+          })}
+          {lista.length === 0 && (
+            <Vazio colSpan={8}>{estoque.length === 0 ? "Nenhum produto cadastrado." : "Nenhum produto encontrado."}</Vazio>
+          )}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+export function VendasPage() {
+  const { vendas, abrirModal, clientes } = useApp();
+  const [filtro, setFiltro] = useState("todas");
+  const lista = vendas.filter((v) => filtro === "todas" || v.status === filtro);
+  const total = lista.reduce((s, v) => s + v.valor, 0);
+  return (
+    <TableShell
+      title="Vendas"
+      sub={`${lista.length} registros · ${fmtUSD(total)}`}
+      action={
+        <div className="flex items-center gap-2 flex-wrap">
+          <Segmentado
+            valor={filtro}
+            onChange={setFiltro}
+            opcoes={[{ valor: "todas", label: "Todas" }, { valor: "Pendente", label: "A receber" }, { valor: "Pago", label: "Pagas" }]}
+          />
+          <button onClick={() => abrirModal("venda")} className={btnPrimario}>
+            <Plus size={14} /> Nova venda
+          </button>
+        </div>
+      }
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/50">
+            <Th>Venda</Th><Th>Cliente</Th><Th>Itens</Th><Th right>Valor</Th><Th>Pagamento</Th><Th>Status</Th><Th right>Ações</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {lista.map((v) => {
+            const cliente = clientes.find((c) => c.id === v.clienteId);
+            return (
+              <tr key={v.id} className={linhaCls}>
+                <Td>
+                  <div className="font-medium text-slate-900">#{v.numero}</div>
+                  <div className="text-xs text-slate-400">{fmtDate(v.data)}</div>
+                </Td>
+                <Td className="text-slate-600">{v.clienteNome}</Td>
+                <Td className="text-slate-600">
+                  {(v.itens || []).map((l, idx) => (
+                    <div key={idx} className={idx > 0 ? "mt-1" : ""}>
+                      {l.itemNome} × {l.qtd} <span className="text-xs text-slate-400">({l.tipoVenda})</span>
+                    </div>
+                  ))}
+                </Td>
+                <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(v.valor)}</Td>
+                <Td className="text-slate-600">{v.pagamento} · {v.condicao}</Td>
+                <Td><Badge status={v.status} /></Td>
+                <Td right>
+                  {v.status === "Pendente" && (
+                    <div className="flex items-center justify-end gap-1">
+                      <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
+                      <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                    </div>
+                  )}
+                </Td>
+              </tr>
+            );
+          })}
+          {lista.length === 0 && <Vazio colSpan={7}>Nenhuma venda encontrada.</Vazio>}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+const PERIODOS = [
+  { valor: "7", label: "7 dias" },
+  { valor: "30", label: "30 dias" },
+  { valor: "90", label: "90 dias" },
+  { valor: "tudo", label: "Tudo" },
+];
+
+export function MaisVendidosPage() {
+  const { vendas, estoque } = useApp();
+  const [periodo, setPeriodo] = useState("30");
+  const desde = periodo === "tudo" ? null : diasAtras(Number(periodo) - 1);
+  const lista = useMemo(() => calcularMaisVendidos(vendas, estoque, desde), [vendas, estoque, desde]);
+  const totalQtd = lista.reduce((s, p) => s + p.qtd, 0);
+  const totalValor = lista.reduce((s, p) => s + p.total, 0);
+  const max = lista[0]?.qtd || 1;
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <StatCard label="Unidades vendidas" value={totalQtd} sub={periodo === "tudo" ? "Desde o início" : `Últimos ${periodo} dias`} icon={Package} />
+        <StatCard label="Faturamento" value={fmtUSD(totalValor)} sub="Soma dos produtos vendidos" icon={DollarSign} tom="sky" />
+        <StatCard label="Produtos diferentes" value={lista.length} sub="Com pelo menos uma venda" icon={TrendingUp} tom="violet" />
+      </div>
+      <TableShell
+        title="Ranking de produtos"
+        sub="Ordenado pela quantidade vendida"
+        action={<Segmentado valor={periodo} onChange={setPeriodo} opcoes={PERIODOS} />}
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50/50">
+              <Th>#</Th><Th>Produto</Th><Th right>Unidades</Th><Th>Participação</Th><Th right>Faturamento</Th><Th right>Nº de vendas</Th><Th right>Em estoque</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((p, idx) => (
+              <tr key={p.chave} className={linhaCls}>
+                <Td className="text-slate-400 font-medium">{idx + 1}</Td>
+                <Td className="font-medium text-slate-900">{p.nome}</Td>
+                <Td right className="font-semibold text-slate-900">{p.qtd}</Td>
+                <Td className="min-w-[140px]">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${(p.qtd / max) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-slate-400 w-10 text-right">{totalQtd ? Math.round((p.qtd / totalQtd) * 100) : 0}%</span>
+                  </div>
+                </Td>
+                <Td right className="text-slate-700 whitespace-nowrap">{fmtUSD(p.total)}</Td>
+                <Td right className="text-slate-500">{p.vendas}</Td>
+                <Td right className={p.estoque == null ? "text-slate-300" : "text-slate-600"}>{p.estoque ?? "—"}</Td>
+              </tr>
+            ))}
+            {lista.length === 0 && <Vazio colSpan={7}>Nenhuma venda neste período.</Vazio>}
+          </tbody>
+        </table>
+      </TableShell>
+    </>
+  );
+}
+
+export function ComprasPage() {
+  const { compras, abrirModal } = useApp();
+  return (
+    <TableShell
+      title="Compras"
+      sub={`${compras.length} registros`}
+      action={
+        <button onClick={() => abrirModal("compra")} className={btnPrimario}>
+          <Plus size={14} /> Nova compra
+        </button>
+      }
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/50">
+            <Th>Data</Th><Th>Fornecedor</Th><Th>Itens</Th><Th>Pago com</Th><Th right>Total</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {compras.map((c) => (
+            <tr key={c.id} className={linhaCls}>
+              <Td className="text-slate-600 whitespace-nowrap">{fmtDate(c.data)}</Td>
+              <Td className="font-medium text-slate-900">{c.fornecedorNome}</Td>
+              <Td className="text-slate-600">
+                {(c.itens || []).map((l, idx) => (
+                  <div key={idx} className={idx > 0 ? "mt-1" : ""}>
+                    {l.nome} × {l.qtd} <span className="text-xs text-slate-400">({fmtUSD(l.custo)} un.)</span>
+                  </div>
+                ))}
+              </Td>
+              <Td className="text-slate-600">{c.pagamento || "—"}</Td>
+              <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(c.total)}</Td>
+            </tr>
+          ))}
+          {compras.length === 0 && <Vazio colSpan={5}>Nenhuma compra registrada.</Vazio>}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+export function CaixaPage() {
+  const { caixas, movimentos, abrirModal } = useApp();
+  const [filtro, setFiltro] = useState("todos");
+  const lista = movimentos.filter((m) => filtro === "todos" || m.caixa === filtro);
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-slate-900">Caixas e saldos</div>
+        <button onClick={() => abrirModal("movimento")} className={btnPrimario}>
+          <Plus size={14} /> Movimento
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        {Object.keys(CAIXA_META).map((k) => <CartaoCaixa key={k} k={k} valor={caixas[k]} mostrarEquivale={false} />)}
+      </div>
+      <TableShell
+        title="Movimentações"
+        sub={`${lista.length} lançamentos`}
+        action={
+          <Segmentado
+            valor={filtro}
+            onChange={setFiltro}
+            opcoes={[{ valor: "todos", label: "Todos" }, ...Object.keys(CAIXA_META).map((k) => ({ valor: k, label: CAIXA_META[k].label }))]}
+          />
+        }
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50/50">
+              <Th>Data</Th><Th>Caixa</Th><Th>Tipo</Th><Th>Descrição</Th><Th right>Valor</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((m) => {
+              const meta = CAIXA_META[m.caixa];
+              return (
+                <tr key={m.id} className={linhaCls}>
+                  <Td className="text-slate-600 whitespace-nowrap">{fmtDate(m.data)}</Td>
+                  <Td className="font-medium text-slate-900">{meta?.label || m.caixa}</Td>
+                  <Td><span className={m.tipo === "Entrada" ? "text-emerald-700 font-medium" : "text-red-600 font-medium"}>{m.tipo}</span></Td>
+                  <Td className="text-slate-600">{m.descricao}</Td>
+                  <Td right className={`whitespace-nowrap font-medium ${m.tipo === "Entrada" ? "text-emerald-700" : "text-red-600"}`}>
+                    {m.tipo === "Entrada" ? "+" : "−"} {meta ? meta.format(m.valor) : m.valor}
+                  </Td>
+                </tr>
+              );
+            })}
+            {lista.length === 0 && <Vazio colSpan={5}>Nenhuma movimentação registrada.</Vazio>}
+          </tbody>
+        </table>
+      </TableShell>
+    </>
+  );
+}
+
+export function PessoasPage({ tipo }) {
+  const app = useApp();
+  const isCliente = tipo === "cliente";
+  const data = isCliente ? app.clientes : app.fornecedores;
+  const [q, setQ] = useState("");
+  const termo = normalizar(q);
+  const lista = data
+    .filter((p) => !termo || normalizar(p.nome).includes(termo) || normalizar(p.contato).includes(termo))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const resumo = useMemo(() => {
+    if (!isCliente) return {};
+    const r = {};
+    for (const v of app.vendas) {
+      if (!v.clienteId) continue;
+      const e = (r[v.clienteId] ||= { total: 0, ultima: null, pendente: 0 });
+      e.total += v.valor;
+      if (!e.ultima || v.data > e.ultima) e.ultima = v.data;
+      if (v.status === "Pendente") e.pendente += v.valor;
+    }
+    return r;
+  }, [app.vendas, isCliente]);
+
+  return (
+    <TableShell
+      title={isCliente ? "Clientes" : "Fornecedores"}
+      sub={`${data.length} cadastros`}
+      action={
+        <div className="flex items-center gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar..." className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 w-44 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+          <button onClick={() => app.abrirModal(tipo)} className={btnPrimario}>
+            <Plus size={14} /> Novo
+          </button>
+        </div>
+      }
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/50">
+            <Th>Nome</Th><Th>Contato</Th>
+            {isCliente && <><Th right>Total comprado</Th><Th>Última compra</Th><Th right>A receber</Th></>}
+            {!isCliente && <Th>Observação</Th>}
+            <Th right>Ações</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {lista.map((p) => {
+            const r = resumo[p.id];
+            return (
+              <tr key={p.id} className={linhaCls}>
+                <Td className="font-medium text-slate-900">{p.nome}</Td>
+                <Td className="text-slate-600">{p.contato || "—"}</Td>
+                {isCliente && (
+                  <>
+                    <Td right className="text-slate-700 whitespace-nowrap">{fmtUSD(r?.total)}</Td>
+                    <Td className="text-slate-500">{r?.ultima ? fmtDate(r.ultima) : "—"}</Td>
+                    <Td right className={r?.pendente ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>{r?.pendente ? fmtUSD(r.pendente) : "—"}</Td>
+                  </>
+                )}
+                {!isCliente && <Td className="text-slate-500">{p.obs || "—"}</Td>}
+                <Td right>
+                  <div className="flex items-center justify-end gap-1">
+                    <LinkWhatsApp contato={p.contato} texto={`Olá ${p.nome}, tudo bem? Aqui é da Indufarma.`} />
+                    <button onClick={() => app.abrirModal(tipo, p)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => app.excluirPessoa(tipo, p)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                  </div>
+                </Td>
+              </tr>
+            );
+          })}
+          {lista.length === 0 && (
+            <Vazio colSpan={isCliente ? 6 : 4}>{data.length === 0 ? `Nenhum ${isCliente ? "cliente" : "fornecedor"} cadastrado.` : "Nenhum resultado."}</Vazio>
+          )}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+export function ContasPage() {
+  const { contas, contasPendentes, totalContasPendentes, abrirModal, duplicarConta, excluirConta } = useApp();
+  const hoje = todayISO();
+  const ordenadas = [...contas].sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+  return (
+    <TableShell
+      title="Contas a pagar"
+      sub={`${contasPendentes.length} pendentes · ${fmtUSD(totalContasPendentes)}`}
+      action={
+        <button onClick={() => abrirModal("conta")} className={btnPrimario}>
+          <Plus size={14} /> Nova conta
+        </button>
+      }
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/50">
+            <Th>Conta</Th><Th>Categoria</Th><Th right>Valor</Th><Th>Vencimento</Th><Th>Status</Th><Th right>Ações</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordenadas.map((c) => {
+            const atrasada = c.status === "Pendente" && c.vencimento < hoje;
+            return (
+              <tr key={c.id} className={linhaCls}>
+                <Td className="font-medium text-slate-900">{c.nome}</Td>
+                <Td className="text-slate-600">{c.categoria}</Td>
+                <Td right className="text-slate-900 font-medium whitespace-nowrap">{fmtUSD(c.valor)}</Td>
+                <Td className={atrasada ? "text-red-600 font-medium" : "text-slate-600"}>
+                  {fmtDate(c.vencimento)}
+                  {c.status === "Pago" && c.dataPagamento && <div className="text-xs text-slate-400">Pago em {fmtDate(c.dataPagamento)}</div>}
+                </Td>
+                <Td><Badge status={atrasada ? "Atrasada" : c.status} /></Td>
+                <Td right>
+                  <div className="flex items-center justify-end gap-1">
+                    {c.status === "Pendente" && (
+                      <button onClick={() => abrirModal("pagarConta", c)} className={btnIcone} title="Marcar como paga"><Check size={15} /></button>
+                    )}
+                    {c.status === "Pago" && (
+                      <button onClick={() => duplicarConta(c.id)} className={btnIcone} title="Repetir no próximo mês"><Copy size={15} /></button>
+                    )}
+                    <button onClick={() => abrirModal("conta", c)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => excluirConta(c)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
+                  </div>
+                </Td>
+              </tr>
+            );
+          })}
+          {contas.length === 0 && <Vazio colSpan={6}>Nenhuma conta cadastrada.</Vazio>}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+export function CambioPage() {
+  const { cambio, setCambio } = useApp();
+  return (
+    <Cartao title="Taxas de câmbio" sub="Defina manualmente as cotações usadas no sistema." className="max-w-lg">
+      <CambioForm initial={cambio} onSave={(vals) => setCambio({ ...cambio, ...vals })} />
+    </Cartao>
+  );
+}
+
+export function CambioForm({ onSave, initial }) {
+  const [tcr, setTcr] = useState(initial.tcr);
+  const [cc, setCc] = useState(initial.chacoCompra);
+  const [cv, setCv] = useState(initial.chacoVenda);
+  const [salvo, setSalvo] = useState(false);
+  const valido = tcr > 0 && cc > 0 && cv > 0;
+  return (
+    <div>
+      <Field label="TCR · BRL/USDT">
+        <input type="number" step="0.01" min="0" className={inputCls} value={tcr} onChange={(e) => { setTcr(Number(e.target.value)); setSalvo(false); }} />
+      </Field>
+      <Field label="Chaco · compra USD">
+        <input type="number" step="0.01" min="0" className={inputCls} value={cc} onChange={(e) => { setCc(Number(e.target.value)); setSalvo(false); }} />
+      </Field>
+      <Field label="Chaco · venda USD" hint="Usada para converter os caixas em reais (PIX e Real) para dólar.">
+        <input type="number" step="0.01" min="0" className={inputCls} value={cv} onChange={(e) => { setCv(Number(e.target.value)); setSalvo(false); }} />
+      </Field>
+      <button
+        disabled={!valido}
+        onClick={() => { onSave({ tcr, chacoCompra: cc, chacoVenda: cv, modo: "Manual" }); setSalvo(true); }}
+        className={btnPrimario + " w-full"}
+      >
+        {salvo ? "Taxas salvas" : "Salvar taxas"}
+      </button>
+    </div>
+  );
+}
