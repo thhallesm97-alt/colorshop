@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check, ImagePlus, Share2, Image as ImageIcon } from "lucide-react";
-import { useApp, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda } from "./contexto.js";
-import { fmtUSD, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
+import { useApp, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, fmtConta } from "./contexto.js";
+import { fmtUSD, fmtBRL, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
 import { comprimir, salvarFoto, useFoto, obterFoto, copiarFoto, podeCompartilhar, compartilharFoto, urlPublica } from "./lib/fotos.js";
@@ -121,7 +121,7 @@ export function CampoVendedor({ valor, onChange }) {
 }
 
 export function VendaModal() {
-  const { clientes, estoque, vendedores, registrarVenda, fecharModal, ehVendedor, emAbertoDoCliente } = useApp();
+  const { clientes, estoque, vendedores, registrarVenda, fecharModal, ehVendedor, emAbertoDoCliente, cambio } = useApp();
   const disponiveis = estoque.filter((i) => ehDeFornecedor(i) || i.qtd > 0);
   const ativos = vendedores.filter((v) => v.ativo !== false);
   const [clienteId, setClienteId] = useState("");
@@ -285,6 +285,11 @@ export function VendaModal() {
         </Field>
       </div>
       {ehVendedor && <p className="text-xs text-slate-500 -mt-2 mb-4">A venda fica como "a receber" até o dono confirmar o pagamento.</p>}
+      {!ehVendedor && condicao === "À vista" && (pagamento === "PIX" || pagamento === "Real") && total > 0 && (
+        <p className="text-xs text-slate-500 -mt-2 mb-4">
+          Entra no caixa {pagamento === "PIX" ? "PIX" : "Real efetivo"}: <span className="font-medium text-slate-900">{fmtBRL(paraMoedaDoCaixa("pix", total, cambio))}</span> (câmbio R$ {Number(cambio.chacoCompra).toFixed(2).replace(".", ",")})
+        </p>
+      )}
       {(() => {
         const c = clientes.find((x) => x.id === clienteId);
         const limite = Number(c?.limiteCredito) || 0;
@@ -517,7 +522,7 @@ export function MovimentoModal() {
             <option>Saída</option>
           </select>
         </Field>
-        <Field label="Valor">
+        <Field label={caixaEmReais(caixaKey) ? "Valor (R$)" : caixaKey === "usdt" ? "Valor (USDT)" : "Valor (US$)"}>
           <input type="number" step="0.01" min="0" className={inputCls} value={valor} onChange={(e) => setValor(n(e.target.value))} />
         </Field>
       </div>
@@ -709,6 +714,7 @@ export function ContaModal() {
   const [nome, setNome] = useState(editando?.nome || "");
   const [categoria, setCategoria] = useState(editando?.categoria || "Água");
   const [valor, setValor] = useState(editando?.valor ?? 0);
+  const [moeda, setMoeda] = useState(editando?.moeda || "USD");
   const [vencimento, setVencimento] = useState(editando?.vencimento || todayISO());
   const valido = nome.trim() && valor > 0 && vencimento;
 
@@ -720,8 +726,11 @@ export function ContaModal() {
         </select>
       </Field>
       <Field label="Nome da conta"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Energia - Farmácia" /></Field>
+      <Field label="Moeda da conta">
+        <Segmentado valor={moeda} onChange={setMoeda} opcoes={[{ valor: "USD", label: "Dólar (US$)" }, { valor: "BRL", label: "Reais (R$)" }]} />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor (US$)"><input type="number" step="0.01" min="0" className={inputCls} value={valor} onChange={(e) => setValor(n(e.target.value))} /></Field>
+        <Field label={moeda === "BRL" ? "Valor (R$)" : "Valor (US$)"}><input type="number" step="0.01" min="0" className={inputCls} value={valor} onChange={(e) => setValor(n(e.target.value))} /></Field>
         <Field label="Vencimento"><input type="date" className={inputCls} value={vencimento} onChange={(e) => setVencimento(e.target.value)} /></Field>
       </div>
       {isEdit && (
@@ -730,7 +739,7 @@ export function ContaModal() {
         </button>
       )}
       <button
-        onClick={() => { salvarConta({ nome: nome.trim(), categoria, valor, vencimento }, editando); fecharModal(); }}
+        onClick={() => { salvarConta({ nome: nome.trim(), categoria, valor, moeda, vencimento }, editando); fecharModal(); }}
         disabled={!valido}
         className={btnPrimario + " w-full"}
       >
@@ -741,24 +750,33 @@ export function ContaModal() {
 }
 
 export function PagarContaModal() {
-  const { editando: conta, pagarConta, fecharModal } = useApp();
-  const [caixaKey, setCaixaKey] = useState("pix");
+  const { editando: conta, pagarConta, fecharModal, contaNaMoedaDoCaixa, cambio } = useApp();
+  const [caixaKey, setCaixaKey] = useState(conta?.moeda === "BRL" ? "pix" : "dolar");
+  const [valor, setValor] = useState(() => (conta ? String(contaNaMoedaDoCaixa(conta, conta.moeda === "BRL" ? "pix" : "dolar")) : ""));
   if (!conta) return null;
+  const meta = CAIXA_META[caixaKey];
+  const trocarCaixa = (k) => { setCaixaKey(k); setValor(String(contaNaMoedaDoCaixa(conta, k))); };
+  const convertido = (conta.moeda === "BRL") !== caixaEmReais(caixaKey);
+  const v = Math.round(n(valor) * 100) / 100;
   return (
     <Modal title={`Pagar: ${conta.nome}`} onClose={fecharModal}>
       <div className="text-sm text-slate-600 mb-4">
-        Valor: <span className="font-semibold text-slate-900">{fmtUSD(conta.valor)}</span> · Vencimento: {fmtDate(conta.vencimento)}
+        Valor: <span className="font-semibold text-slate-900">{fmtConta(conta)}</span> · Vencimento: {fmtDate(conta.vencimento)}
       </div>
-      <Field label="Pagar com"><SelectCaixa value={caixaKey} onChange={setCaixaKey} /></Field>
-      <button onClick={() => { pagarConta(conta.id, caixaKey); fecharModal(); }} className={btnPrimario + " w-full"}>
-        Confirmar pagamento
+      <Field label="Pago com (caixa)"><SelectCaixa value={caixaKey} onChange={trocarCaixa} /></Field>
+      <Field label={`Quanto saiu do caixa (${caixaEmReais(caixaKey) ? "R$" : caixaKey === "usdt" ? "USDT" : "US$"})`}>
+        <input type="number" step="0.01" min="0" className={inputCls} value={valor} onChange={(e) => setValor(e.target.value)} />
+      </Field>
+      {convertido && <div className="text-xs text-slate-500 -mt-1 mb-3">Convertido pelo câmbio de hoje (R$ {Number(cambio.chacoCompra).toFixed(2).replace(".", ",")}). Pode mudar se pagou outro valor.</div>}
+      <button disabled={!(v > 0)} onClick={() => { pagarConta(conta.id, caixaKey, v); fecharModal(); }} className={btnPrimario + " w-full disabled:opacity-50"}>
+        Confirmar pagamento ({meta.format(v)})
       </button>
     </Modal>
   );
 }
 
 export function ReceberVendaModal() {
-  const { editando: venda, marcarVendaPaga, fecharModal } = useApp();
+  const { editando: venda, marcarVendaPaga, fecharModal, cambio } = useApp();
   const [caixaKey, setCaixaKey] = useState(venda?.pagamento ? caixaDoPagamento(venda.pagamento) : "pix");
   const falta = venda ? faltaReceber(venda) : 0;
   const [valor, setValor] = useState(falta ? String(falta) : "");
@@ -785,6 +803,11 @@ export function ReceberVendaModal() {
           : <span className="text-slate-400">Com esse valor a venda fica paga.</span>}
       </div>
       <Field label="Recebido em"><SelectCaixa value={caixaKey} onChange={setCaixaKey} /></Field>
+      {caixaEmReais(caixaKey) && v > 0 && (
+        <div className="text-xs text-slate-500 -mt-1 mb-3">
+          Entra no {CAIXA_META[caixaKey].label}: <span className="font-medium text-slate-900">{CAIXA_META[caixaKey].format(paraMoedaDoCaixa(caixaKey, v, cambio))}</span> (câmbio R$ {Number(cambio.chacoCompra).toFixed(2).replace(".", ",")})
+        </div>
+      )}
       <button disabled={invalido} onClick={() => { marcarVendaPaga(venda.id, caixaKey, v); fecharModal(); }} className={btnPrimario + " w-full disabled:opacity-50"}>
         {parcial ? "Registrar pagamento parcial" : "Confirmar recebimento"}
       </button>

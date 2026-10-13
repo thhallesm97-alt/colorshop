@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { fmtBRL, normalizar } from "./lib/format.js";
+import { fmtBRL, fmtUSD, normalizar } from "./lib/format.js";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -12,6 +12,13 @@ export const CAIXA_META = {
 };
 
 export const PAGAMENTOS = ["PIX", "Real", "Dólar", "USDT"];
+// Caixas que guardam reais: o valor em dólar da venda/conta entra convertido pelo câmbio de compra.
+export const caixaEmReais = (k) => k === "pix" || k === "real";
+// Contas a pagar podem ser em dólar (padrão) ou em reais (moeda: "BRL").
+export const contaEmUSD = (c, cambio) => (c?.moeda === "BRL" ? Number(c.valor || 0) / Number(cambio?.chacoCompra || 1) : Number(c?.valor || 0));
+export const fmtConta = (c) => (c?.moeda === "BRL" ? fmtBRL(c.valor) : fmtUSD(c?.valor));
+export const paraMoedaDoCaixa = (k, valorUSD, cambio) =>
+  caixaEmReais(k) ? Math.round(Number(valorUSD || 0) * Number(cambio?.chacoCompra || 1) * 100) / 100 : Number(valorUSD || 0);
 export const caixaDoPagamento = (p) => (p === "USDT" ? "usdt" : p === "Dólar" ? "dolar" : p === "PIX" ? "pix" : "real");
 
 export const CAMBIO_PADRAO = { id: "cambio", tcr: 5.26, chacoCompra: 5.26, chacoVenda: 5.35, modo: "Manual" };

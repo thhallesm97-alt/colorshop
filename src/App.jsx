@@ -4,10 +4,10 @@ import {
   Home, Loader2, Receipt, TrendingUp, Menu, BarChart3, BadgeDollarSign, FileText, PackageCheck, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor, CalendarCheck, History,
 } from "lucide-react";
 
-import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao, precoFoiAlterado, faltaReceber, valorPagoDaVenda } from "./contexto.js";
+import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao, precoFoiAlterado, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, contaEmUSD, fmtConta } from "./contexto.js";
 import { fmtUSD, fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses, diasAtras } from "./lib/format.js";
 import { FornecedorDetalheModal, ImportarProdutosModal, AcertoModal } from "./fornecedores.jsx";
-import { PagarComissaoModal, ContaClienteModal, DevolucaoModal, RelatorioPage } from "./financeiro.jsx";
+import { PagarComissaoModal, ContaClienteModal, DevolucaoModal, RelatorioPage, EditarVendaModal } from "./financeiro.jsx";
 import { backupDoDia, obterBackup } from "./lib/backup.js";
 import { HistoricoPage, FechamentoPage } from "./controle.jsx";
 import * as db from "./lib/db.js";
@@ -305,7 +305,7 @@ export default function IndufarmaApp() {
     if (!ehVendedor && o.vistoPeloDono === false) atualizarOrcamento(o.id, { vistoPeloDono: true });
   }
   const contasPendentes = useMemo(() => contas.filter((c) => c.status === "Pendente"), [contas]);
-  const totalContasPendentes = useMemo(() => contasPendentes.reduce((s, c) => s + c.valor, 0), [contasPendentes]);
+  const totalContasPendentes = useMemo(() => contasPendentes.reduce((s, c) => s + contaEmUSD(c, cambio), 0), [contasPendentes, cambio]);
   const contasVencendo = useMemo(
     () => contasPendentes.filter((c) => c.vencimento <= hoje).sort((a, b) => a.vencimento.localeCompare(b.vencimento)),
     [contasPendentes, hoje]
@@ -351,8 +351,13 @@ export default function IndufarmaApp() {
     setClientes((cs) => cs.map((x) => (x.id === clienteId ? { ...x, proximoContato: data || null, notaContato: data ? nota : "" } : x)));
   }
 
-  function addMovimento(caixaKey, tipo, valor, descricao, extra = {}) {
-    setMovimentos((m) => [{ id: uid(), caixa: caixaKey, tipo, valor: Number(valor), descricao, data: todayISO(), ts: Date.now(), ...extra }, ...m]);
+  // valor em dólar; no PIX e no Real efetivo entra convertido pelo câmbio de compra do dia.
+  // emMoedaDoCaixa: o valor já está na moeda do caixa (movimento manual).
+  function addMovimento(caixaKey, tipo, valor, descricao, extra = {}, emMoedaDoCaixa = false) {
+    const conv = !emMoedaDoCaixa && caixaEmReais(caixaKey);
+    const final = conv ? paraMoedaDoCaixa(caixaKey, valor, cambio) : Number(valor);
+    const info = conv ? { valorUSD: Number(valor), cotacao: Number(cambio.chacoCompra) } : {};
+    setMovimentos((m) => [{ id: uid(), caixa: caixaKey, tipo, valor: final, descricao, data: todayISO(), ts: Date.now(), ...info, ...extra }, ...m]);
   }
 
   // Histórico de alterações (só o dono vê). Guarda quem fez, quando e o quê.
@@ -482,6 +487,78 @@ export default function IndufarmaApp() {
     setVendedores((d) => d.map((v) => (v.id === vendedorId ? { ...v, comissoesPagas: [...(v.comissoesPagas || []), { mes, valor, data: todayISO(), caixa: caixaKey }] } : v)));
     addMovimento(caixaKey, "Saída", valor, `Comissão ${vd.nome} (${mes.slice(5)}/${mes.slice(0, 4)})`);
     registrar("Comissão", `Paga a ${vd.nome}: ${fmtUSD(valor)} (${mes.slice(5)}/${mes.slice(0, 4)})`);
+  }
+
+  // Edição de venda (só o dono). Muda cliente, vendedor, data, forma de pagamento e os produtos.
+  // O estoque se ajusta sozinho (é calculado pelas vendas). Se a venda já foi paga, a diferença
+  // de valor entra ou sai do caixa; se mudou a forma de pagamento, o dinheiro troca de caixa.
+  function editarVenda(id, { clienteId, vendedorId, data, pagamento, itens }) {
+    if (ehVendedor) return "Só o dono edita vendas.";
+    const v = vendasTodas.find((x) => x.id === id);
+    if (!v) return "Venda não encontrada.";
+    if (!itens || itens.length === 0) return "A venda precisa ter pelo menos um produto.";
+    const temDevolucao = (v.devolucoes || []).length > 0;
+    // Estoque: o que esta venda já usava volta como disponível.
+    const usado = {};
+    for (const l of v.itens || []) if (l.itemId) usado[l.itemId] = (usado[l.itemId] || 0) + Number(l.qtd || 0);
+    const pedido = {};
+    for (const l of itens) if (l.itemId) pedido[l.itemId] = (pedido[l.itemId] || 0) + Number(l.qtd || 0);
+    for (const itemId in pedido) {
+      const s = estoque.find((i) => i.id === itemId);
+      if (!s) return "Um dos produtos não existe mais no estoque.";
+      if (!ehDeFornecedor(s) && pedido[itemId] > s.qtd + (usado[itemId] || 0)) return `Estoque insuficiente de ${s.nome} (${s.qtd + (usado[itemId] || 0)} disponíveis).`;
+    }
+    const linhas = temDevolucao ? v.itens : itens.map((l) => {
+      const antiga = l.linhaOriginal != null ? v.itens[l.linhaOriginal] : null;
+      const item = l.itemId ? estoque.find((i) => i.id === l.itemId) : null;
+      const precoUnit = Number(l.precoUnit);
+      const base = antiga ? { ...antiga } : {
+        itemId: l.itemId || null, itemNome: item ? item.nome : l.itemNome, tipoVenda: l.tipoVenda || "Varejo",
+        custoVendedor: item ? custoComissao(item) : 0, ...(item ? { custoReal: Number(item.custo) || 0 } : { avulso: true }),
+      };
+      return { ...base, qtd: Number(l.qtd), precoUnit, subtotal: Math.round(precoUnit * Number(l.qtd) * 100) / 100 };
+    });
+    const cliente = clientesTodos.find((c) => c.id === clienteId);
+    const vendedor = vendedoresTodos.find((x) => x.id === vendedorId);
+    // Com devolução registrada os produtos ficam como estão (o valor já tem a devolução abatida).
+    const valorProdutos = temDevolucao ? Number(v.valorProdutos ?? v.valor) : linhas.reduce((s, l) => s + l.subtotal, 0);
+    const valor = valorProdutos + (v.frete ? Number(v.frete.valor || 0) : 0);
+    const novo = {
+      ...v, clienteId: clienteId || "", clienteNome: cliente ? cliente.nome : "Sem nome",
+      vendedorId: vendedor ? vendedor.id : "", vendedorNome: vendedor ? vendedor.nome : "",
+      data: data || v.data, pagamento, itens: linhas, valorProdutos, valor, editadaEm: todayISO(),
+    };
+    // Venda paga: acerta o caixa.
+    if (v.status === "Pago") {
+      const caixaAntigo = caixaDoPagamento(v.pagamento);
+      const caixaNovo = caixaDoPagamento(pagamento);
+      const recebido = (v.pagamentos || []).length ? null : Number(v.valor); // pagou tudo de uma vez
+      if (recebido != null && caixaAntigo !== caixaNovo) {
+        // Tira do caixa antigo exatamente o que tinha entrado (mesmo câmbio daquele dia).
+        const entrou = movimentosTodos.find((m) => m.caixa === caixaAntigo && m.tipo === "Entrada" && m.descricao === `Venda #${v.numero}`);
+        if (entrou) addMovimento(caixaAntigo, "Saída", entrou.valor, `Venda #${v.numero}: forma de pagamento trocada para ${pagamento}`, {}, true);
+        else addMovimento(caixaAntigo, "Saída", recebido, `Venda #${v.numero}: forma de pagamento trocada para ${pagamento}`);
+        addMovimento(caixaNovo, "Entrada", valor, `Venda #${v.numero} (recebida em ${pagamento})`, v.vendedorId ? { vendedorId: v.vendedorId } : {});
+      } else if (Math.abs(valor - Number(v.valor)) > 0.004) {
+        const dif = valor - Number(v.valor);
+        const caixa = recebido != null ? caixaNovo : (v.pagamentos[v.pagamentos.length - 1].caixa || caixaNovo);
+        addMovimento(caixa, dif > 0 ? "Entrada" : "Saída", Math.abs(dif), `Ajuste da venda #${v.numero} (editada)`);
+      }
+    } else if (faltaReceber(novo) === 0 && valorPagoDaVenda(novo) > 0) {
+      Object.assign(novo, { status: "Pago", dataRecebimento: todayISO() });
+    }
+    setVendas((vs) => vs.map((x) => (x.id === id ? novo : x)));
+    // Histórico: o que mudou.
+    const mud = [];
+    if ((v.clienteId || "") !== (novo.clienteId || "")) mud.push(`cliente ${v.clienteNome} → ${novo.clienteNome}`);
+    if ((v.vendedorId || "") !== (novo.vendedorId || "")) mud.push(`vendedor ${v.vendedorNome || "nenhum"} → ${novo.vendedorNome || "nenhum"}`);
+    if (v.data !== novo.data) mud.push(`data ${v.data.split("-").reverse().join("/")} → ${novo.data.split("-").reverse().join("/")}`);
+    if (v.pagamento !== novo.pagamento) mud.push(`pagamento ${v.pagamento} → ${novo.pagamento}`);
+    const resumo = (ls) => ls.map((l) => `${l.itemNome} × ${l.qtd} a ${fmtUSD(l.precoUnit)}`).join(", ");
+    if (!temDevolucao && resumo(v.itens) !== resumo(linhas)) mud.push(`produtos: ${resumo(v.itens)} → ${resumo(linhas)}`);
+    if (Math.abs(valor - Number(v.valor)) > 0.004) mud.push(`valor ${fmtUSD(v.valor)} → ${fmtUSD(valor)}`);
+    if (mud.length) registrar("Venda", `Venda #${v.numero} editada: ${mud.join("; ")}`);
+    return null;
   }
 
   function atualizarVenda(id, mudancas) {
@@ -717,12 +794,14 @@ export default function IndufarmaApp() {
     return true;
   }
 
-  function pagarConta(id, caixaKey) {
+  function pagarConta(id, caixaKey, valorNoCaixa) {
     const conta = contas.find((c) => c.id === id);
     if (!conta || conta.status === "Pago") return;
-    setContas((cs) => cs.map((c) => (c.id === id ? { ...c, status: "Pago", dataPagamento: todayISO(), caixa: caixaKey } : c)));
-    addMovimento(caixaKey, "Saída", conta.valor, `Conta: ${conta.nome}`);
-    registrar("Pagamento", `Conta paga: ${conta.nome}, ${fmtUSD(conta.valor)}`);
+    setContas((cs) => cs.map((c) => (c.id === id ? { ...c, status: "Pago", dataPagamento: todayISO(), caixa: caixaKey, valorPagoNoCaixa: valorNoCaixa != null ? Number(valorNoCaixa) : contaNaMoedaDoCaixa(c, caixaKey) } : c)));
+    // valorNoCaixa: quanto saiu, na moeda do caixa escolhido.
+    const saiu = valorNoCaixa != null ? Number(valorNoCaixa) : contaNaMoedaDoCaixa(conta, caixaKey);
+    addMovimento(caixaKey, "Saída", saiu, `Conta: ${conta.nome}`, {}, true);
+    registrar("Pagamento", `Conta paga: ${conta.nome}, ${fmtConta(conta)} (saiu ${CAIXA_META[caixaKey].format(saiu)} do ${CAIXA_META[caixaKey].label})`);
   }
 
   // O cliente paga o frete para a farmácia e a farmácia repassa ao freteiro.
@@ -758,17 +837,25 @@ export default function IndufarmaApp() {
     registrar("Recebimento", `Venda #${venda.numero} (${venda.clienteNome}): recebeu ${fmtUSD(valor)}${quitou ? ", venda paga" : `, ainda falta ${fmtUSD(falta - valor)}`}`);
   }
 
+  // Valor da conta convertido para a moeda do caixa (câmbio de compra do dia).
+  function contaNaMoedaDoCaixa(conta, caixaKey) {
+    const r = Number(cambio.chacoCompra || 1);
+    const v = Number(conta.valor || 0);
+    if (conta.moeda === "BRL") return caixaEmReais(caixaKey) ? v : Math.round((v / r) * 100) / 100;
+    return caixaEmReais(caixaKey) ? Math.round(v * r * 100) / 100 : v;
+  }
+
   function duplicarConta(id) {
     const conta = contas.find((c) => c.id === id);
     if (!conta) return;
     setContas((cs) => [
       ...cs,
-      { id: uid(), nome: conta.nome, categoria: conta.categoria, valor: conta.valor, vencimento: somarMeses(conta.vencimento, 1), status: "Pendente", dataPagamento: null },
+      { id: uid(), nome: conta.nome, categoria: conta.categoria, valor: conta.valor, moeda: conta.moeda || "USD", vencimento: somarMeses(conta.vencimento, 1), status: "Pendente", dataPagamento: null },
     ]);
   }
 
   function salvarConta(dados, original) {
-    if (original && Number(dados.valor) !== Number(original.valor)) registrar("Conta", `${original.nome}: valor ${fmtUSD(original.valor)} → ${fmtUSD(dados.valor)}`);
+    if (original && (Number(dados.valor) !== Number(original.valor) || (dados.moeda || "USD") !== (original.moeda || "USD"))) registrar("Conta", `${original.nome}: valor ${fmtConta(original)} → ${fmtConta(dados)}`);
     if (original) setContas((cs) => cs.map((c) => (c.id === original.id ? { ...c, ...dados } : c)));
     else setContas((cs) => [...cs, { id: uid(), ...dados, status: "Pendente", dataPagamento: null }]);
   }
@@ -776,7 +863,7 @@ export default function IndufarmaApp() {
   function excluirConta(conta) {
     if (!window.confirm(`Excluir a conta "${conta.nome}"?`)) return false;
     setContas((cs) => cs.filter((x) => x.id !== conta.id));
-    registrar("Exclusão", `Conta ${conta.nome} (${fmtUSD(conta.valor)}, ${conta.status}) excluída`);
+    registrar("Exclusão", `Conta ${conta.nome} (${fmtConta(conta)}, ${conta.status}) excluída`);
     return true;
   }
 
@@ -875,7 +962,7 @@ export default function IndufarmaApp() {
   }
 
   function movimentoManual(caixaKey, tipo, valor, descricao) {
-    addMovimento(caixaKey, tipo, valor, descricao);
+    addMovimento(caixaKey, tipo, valor, descricao, {}, true);
     registrar("Caixa", `${tipo} manual em ${CAIXA_META[caixaKey]?.label || caixaKey}: ${CAIXA_META[caixaKey]?.format(valor) ?? valor} (${descricao})`);
   }
 
@@ -909,7 +996,7 @@ export default function IndufarmaApp() {
     contasPendentes, totalContasPendentes, contasVencendo, clientesSemPedido, registrarContato, agendarContato,
     abrirModal, fecharModal, editando,
     addMovimento, registrarVenda, registrarDevolucao, pagarComissao, emAbertoDoCliente, registrarCompra, acertarConsignado, importarProdutos, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
-    duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
+    contaNaMoedaDoCaixa, editarVenda, duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
     salvarOrcamento, atualizarOrcamento, aprovarPrecoOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
     entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, orcamentosDoVendedor, respostasDoDono, marcarOrcamentoVisto, baixarBackup, baixarBackupDoDia, restaurarBackup, vendasTodas,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
@@ -1125,6 +1212,7 @@ export default function IndufarmaApp() {
         {modal === "conta" && <ContaModal />}
         {modal === "pagarConta" && <PagarContaModal />}
         {modal === "receberVenda" && <ReceberVendaModal />}
+        {modal === "editarVenda" && !ehVendedor && <EditarVendaModal />}
         {modal === "dados" && <DadosModal />}
         {modal === "vendedor" && <VendedorModal />}
         {modal === "listaPrecos" && <ListaPrecosModal />}

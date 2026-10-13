@@ -2,8 +2,8 @@
 // Tudo aqui é só do dono (o vendedor não vê lucro nem a conta dos clientes).
 
 import React, { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, TrendingUp, DollarSign, Receipt, Wallet } from "lucide-react";
-import { useApp, CAIXA_META, comissaoDoMes, lucroDaVenda, valorDevolvido, qtdDevolvida, faltaReceber, valorPagoDaVenda } from "./contexto.js";
+import { ChevronLeft, ChevronRight, TrendingUp, DollarSign, Receipt, Wallet, Trash2, Plus } from "lucide-react";
+import { useApp, CAIXA_META, PAGAMENTOS, precoDe, ehDeFornecedor, produtoCombina, comissaoDoMes, lucroDaVenda, valorDevolvido, qtdDevolvida, faltaReceber, valorPagoDaVenda, contaEmUSD } from "./contexto.js";
 import { fmtUSD, fmtDate, fmtNum, todayISO } from "./lib/format.js";
 import { Modal, Field, inputCls, btnPrimario, btnIcone, Cartao, StatCard, Th, Td, Vazio, Badge } from "./ui.jsx";
 
@@ -193,7 +193,7 @@ export function DevolucaoModal() {
 // Relatório do mês
 
 export function RelatorioPage() {
-  const { vendas, estoque, vendedores, fornecedores, contas, compras, movimentos } = useApp();
+  const { vendas, estoque, vendedores, fornecedores, contas, compras, movimentos, cambio } = useApp();
   const hoje = new Date();
   const [refMes, setRefMes] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
   const mes = `${refMes.ano}-${String(refMes.mes + 1).padStart(2, "0")}`;
@@ -235,9 +235,9 @@ export function RelatorioPage() {
     }).filter((x) => x.vendido > 0 || x.comissao > 0);
     const comissoes = vend.reduce((s, x) => s + x.comissao, 0);
     const despesasLista = contas.filter((k) => k.status === "Pago" && String(k.dataPagamento || "").startsWith(mes) && k.categoria !== "Fornecedor");
-    const despesas = despesasLista.reduce((s, k) => s + n(k.valor), 0);
+    const despesas = despesasLista.reduce((s, k) => s + contaEmUSD(k, cambio), 0);
     const porCategoria = {};
-    for (const k of despesasLista) porCategoria[k.categoria] = (porCategoria[k.categoria] || 0) + n(k.valor);
+    for (const k of despesasLista) porCategoria[k.categoria] = (porCategoria[k.categoria] || 0) + contaEmUSD(k, cambio);
     const comprado = compras.filter((c) => String(c.data).startsWith(mes) && c.condicao !== "Devolução").reduce((s, c) => s + n(c.total), 0);
     // A receber: o que falta pagar (sem passar do valor dos produtos, pois o frete é repassado).
     const aReceber = doMes.filter((v) => v.status === "Pendente").reduce((s, v) => s + Math.min(n(v.valorProdutos ?? v.valor), faltaReceber(v)), 0);
@@ -249,7 +249,7 @@ export function RelatorioPage() {
       produtos: [...produtos.values()].sort((a, b) => b.lucro - a.lucro),
       fornecedores: [...porForn.entries()].map(([id, f]) => ({ ...f, nome: id ? fornecedores.find((x) => x.id === id)?.nome || "Fornecedor" : "Sem fornecedor" })).sort((a, b) => b.lucro - a.lucro),
     };
-  }, [vendas, estoque, vendedores, fornecedores, contas, compras, movimentos, mes]);
+  }, [vendas, estoque, vendedores, fornecedores, contas, compras, movimentos, cambio, mes]);
   const margem = r.receita > 0 ? (r.bruto / r.receita) * 100 : 0;
 
   return (
@@ -434,5 +434,105 @@ function Linha({ r, v, forte, cinza }) {
     <div className={`flex items-center justify-between py-2 ${forte ? "font-semibold text-slate-900" : cinza ? "text-slate-400" : "text-slate-600"}`}>
       <span>{r}</span><span className="tabular-nums whitespace-nowrap">{v}</span>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Editar venda (só o dono)
+
+export function EditarVendaModal() {
+  const { editando: v, editarVenda, fecharModal, clientes, vendedores, estoque } = useApp();
+  const [clienteId, setClienteId] = useState(v?.clienteId || "");
+  const [vendedorId, setVendedorId] = useState(v?.vendedorId || "");
+  const [data, setData] = useState(v?.data || todayISO());
+  const [pagamento, setPagamento] = useState(v?.pagamento || "PIX");
+  const [linhas, setLinhas] = useState(() => (v?.itens || []).map((l, i) => ({ ...l, linhaOriginal: i, key: i })));
+  const [busca, setBusca] = useState("");
+  const [erro, setErro] = useState(null);
+  if (!v) return null;
+  const temDevolucao = (v.devolucoes || []).length > 0;
+  const mudar = (key, campo, valor) => setLinhas((ls) => ls.map((l) => (l.key === key ? { ...l, [campo]: valor } : l)));
+  const opcoes = busca.trim() ? estoque.filter((i) => produtoCombina(i, busca)).slice(0, 6) : [];
+  const adicionar = (item) => {
+    setLinhas((ls) => [...ls, { key: "n" + Date.now(), itemId: item.id, itemNome: item.nome, qtd: 1, tipoVenda: "Varejo", precoUnit: precoDe(item, "Varejo") }]);
+    setBusca("");
+  };
+  const total = linhas.reduce((s, l) => s + n(l.precoUnit) * n(l.qtd), 0) + (v.frete ? n(v.frete.valor) : 0);
+  const valido = linhas.length > 0 && linhas.every((l) => n(l.qtd) >= 1 && Number.isInteger(n(l.qtd)) && n(l.precoUnit) >= 0);
+  function salvar() {
+    const r = editarVenda(v.id, { clienteId, vendedorId, data, pagamento, itens: linhas.map((l) => ({ ...l, qtd: n(l.qtd), precoUnit: n(l.precoUnit) })) });
+    if (r) setErro(r); else fecharModal();
+  }
+  return (
+    <Modal title={`Editar venda #${v.numero}`} onClose={fecharModal} wide>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Cliente">
+          <select className={inputCls} value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+            <option value="">Sem cliente</option>
+            {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </Field>
+        <Field label="Vendedor">
+          <select className={inputCls} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
+            <option value="">Sem vendedor</option>
+            {vendedores.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+          </select>
+        </Field>
+        <Field label="Data"><input type="date" className={inputCls} value={data} onChange={(e) => setData(e.target.value)} /></Field>
+        <Field label="Forma de pagamento">
+          <select className={inputCls} value={pagamento} onChange={(e) => setPagamento(e.target.value)}>
+            {PAGAMENTOS.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <div className="text-xs font-medium text-slate-600 mb-1 mt-1">Produtos</div>
+      {temDevolucao ? (
+        <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          {v.itens.map((l, i) => <div key={i}>{l.itemNome} × {l.qtd} · {fmtUSD(l.precoUnit)}</div>)}
+          <div className="text-xs text-amber-700 mt-1">Esta venda tem devolução registrada, então os produtos não podem ser mudados.</div>
+        </div>
+      ) : (
+        <>
+          <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 mb-2">
+            {linhas.map((l) => (
+              <div key={l.key} className="flex items-center gap-2 px-3 py-2 text-sm flex-wrap">
+                <div className="flex-1 min-w-[10rem] text-slate-900">{l.itemNome}</div>
+                <label className="flex items-center gap-1 text-xs text-slate-500">Qtd
+                  <input type="number" min="1" step="1" className={inputCls + " w-20"} value={l.qtd} onChange={(e) => mudar(l.key, "qtd", e.target.value)} />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-500">US$
+                  <input type="number" min="0" step="0.01" className={inputCls + " w-24"} value={l.precoUnit} onChange={(e) => mudar(l.key, "precoUnit", e.target.value)} />
+                </label>
+                <span className="w-24 text-right font-medium tabular-nums">{fmtUSD(n(l.precoUnit) * n(l.qtd))}</span>
+                <button onClick={() => setLinhas((ls) => ls.filter((x) => x.key !== l.key))} className={btnIcone} aria-label="Tirar produto"><Trash2 size={14} /></button>
+              </div>
+            ))}
+            {linhas.length === 0 && <div className="px-3 py-3 text-sm text-slate-400">Nenhum produto.</div>}
+          </div>
+          <div className="relative mb-3">
+            <input className={inputCls} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Adicionar produto: digite o nome" />
+            {opcoes.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg">
+                {opcoes.map((i) => (
+                  <button key={i.id} onClick={() => adicionar(i)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex justify-between gap-2">
+                    <span><Plus size={12} className="inline mr-1" />{i.nome}</span>
+                    <span className="text-xs text-slate-400">{ehDeFornecedor(i) ? "sob encomenda" : `${i.qtd} em estoque`} · {fmtUSD(i.varejo)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div className="flex items-center justify-between text-sm mb-1">
+        <span className="text-slate-500">Total{v.frete ? " (com frete)" : ""}</span>
+        <span className="font-semibold text-slate-900">{fmtUSD(temDevolucao ? v.valor : total)}{!temDevolucao && Math.abs(total - n(v.valor)) > 0.004 && <span className="text-xs font-normal text-slate-400"> (era {fmtUSD(v.valor)})</span>}</span>
+      </div>
+      {v.status === "Pago" && <div className="text-xs text-slate-500 mb-3">A venda já foi paga: se o valor ou a forma de pagamento mudar, o caixa é acertado sozinho.</div>}
+      {erro && <div className="mb-3 text-sm text-red-600">{erro}</div>}
+      <button disabled={!valido} onClick={salvar} className={btnPrimario + " w-full disabled:opacity-50"}>Salvar alterações</button>
+    </Modal>
   );
 }

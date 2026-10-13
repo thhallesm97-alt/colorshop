@@ -4,7 +4,7 @@ import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
   ListChecks, ChevronLeft, ChevronRight, Target, Wallet, Undo2, CalendarClock, Search, X, Send, Image as ImageIcon,
 } from "lucide-react";
-import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda, comissaoDoMes, valorDevolvido, faltaReceber, valorPagoDaVenda } from "./contexto.js";
+import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda, comissaoDoMes, valorDevolvido, faltaReceber, valorPagoDaVenda, fmtConta } from "./contexto.js";
 import { useFoto } from "./lib/fotos.js";
 import { ListaCompras, situacaoCompra, restanteConsignado } from "./fornecedores.jsx";
 import { SeletorMes } from "./financeiro.jsx";
@@ -146,8 +146,8 @@ export function VisaoGeral() {
                       <div className={`text-xs ${atrasada ? "text-red-600" : "text-slate-400"}`}>{atrasada ? `Atrasada desde ${fmtDate(c.vencimento)}` : "Vence hoje"}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-medium text-slate-900">{fmtUSD(c.valor)}</span>
-                      <button onClick={() => abrirModal("pagarConta", c)} className={btnContorno}>Pago</button>
+                      <span className="font-medium text-slate-900">{fmtConta(c)}</span>
+                      <button onClick={() => abrirModal("pagarConta", c)} className={btnContorno}>Pagar</button>
                     </div>
                   </li>
                 );
@@ -279,7 +279,7 @@ export function VisaoGeral() {
                 <li key={c.id} className="flex items-center justify-between text-sm">
                   <span className="text-slate-700 truncate">{c.nome}</span>
                   <span className={`font-medium shrink-0 ml-2 ${c.vencimento < hoje ? "text-red-600" : "text-slate-500"}`}>
-                    {fmtUSD(c.valor)} · {fmtDate(c.vencimento)}
+                    {fmtConta(c)} · {fmtDate(c.vencimento)}
                   </span>
                 </li>
               ))}
@@ -611,6 +611,7 @@ export function VendasPage() {
                 <Td><Badge status={v.status} /></Td>
                 <Td right>
                   <div className="flex items-center justify-end gap-1">
+                  {!ehVendedor && <button onClick={() => abrirModal("editarVenda", v)} className={btnIcone} title="Editar venda"><Pencil size={15} /></button>}
                   {!ehVendedor && <button onClick={() => abrirModal("devolucao", v)} className={btnIcone} title="Devolução do cliente"><Undo2 size={15} /></button>}
                   {v.status === "Pendente" && (
                     <div className="flex items-center justify-end gap-1">
@@ -948,7 +949,10 @@ export function ContasPage() {
               <tr key={c.id} className={linhaCls}>
                 <Td className="font-medium text-slate-900">{c.nome}</Td>
                 <Td className="text-slate-600">{c.categoria}</Td>
-                <Td right className="text-slate-900 font-medium whitespace-nowrap">{fmtUSD(c.valor)}</Td>
+                <Td right className="text-slate-900 font-medium whitespace-nowrap">
+                  {fmtConta(c)}
+                  {c.status === "Pago" && c.caixa && c.valorPagoNoCaixa != null && <div className="text-xs font-normal text-slate-400">Saiu {CAIXA_META[c.caixa]?.format(c.valorPagoNoCaixa)} do {CAIXA_META[c.caixa]?.label}</div>}
+                </Td>
                 <Td className={atrasada ? "text-red-600 font-medium" : "text-slate-600"}>
                   {fmtDate(c.vencimento)}
                   {c.status === "Pago" && c.dataPagamento && <div className="text-xs text-slate-400">Pago em {fmtDate(c.dataPagamento)}</div>}
