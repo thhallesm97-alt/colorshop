@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useApp, CAIXA_META, DIAS_SEM_PEDIDO, produtoCombina, descricaoProduto, ehDeFornecedor, lucroDaVenda } from "./contexto.js";
 import { useFoto } from "./lib/fotos.js";
+import { ListaCompras, situacaoCompra, restanteConsignado } from "./fornecedores.jsx";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import { fmtUSD, fmtDate, fmtDateLong, fmtNum, todayISO, diasAtras, normalizar, parseISO } from "./lib/format.js";
 import {
@@ -643,42 +644,31 @@ export function MaisVendidosPage() {
 }
 
 export function ComprasPage() {
-  const { compras, abrirModal } = useApp();
+  const { compras, contas, abrirModal } = useApp();
+  const [filtro, setFiltro] = useState("todas");
+  const abertas = compras.filter((c) => situacaoCompra(c, contas).aberto);
+  const lista = filtro === "abertas" ? abertas : filtro === "todas" ? compras : compras.filter((c) => (c.condicao || "À vista") === filtro);
   return (
     <TableShell
       title="Compras"
-      sub={`${compras.length} registros`}
+      sub={`${compras.length} registros · ${abertas.length} em aberto`}
       action={
-        <button onClick={() => abrirModal("compra")} className={btnPrimario}>
-          <Plus size={14} /> Nova compra
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={filtro} onChange={(e) => setFiltro(e.target.value)} aria-label="Filtrar compras" className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600">
+            <option value="todas">Todas</option>
+            <option value="abertas">Em aberto ({abertas.length})</option>
+            <option value="À vista">À vista</option>
+            <option value="A prazo">A prazo</option>
+            <option value="Consignado">Consignado</option>
+            <option value="Devolução">Devoluções</option>
+          </select>
+          <button onClick={() => abrirModal("compra")} className={btnPrimario}>
+            <Plus size={14} /> Nova compra
+          </button>
+        </div>
       }
     >
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-100 bg-slate-50/50">
-            <Th>Data</Th><Th>Fornecedor</Th><Th>Itens</Th><Th>Pago com</Th><Th right>Total</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {compras.map((c) => (
-            <tr key={c.id} className={linhaCls}>
-              <Td className="text-slate-600 whitespace-nowrap">{fmtDate(c.data)}</Td>
-              <Td className="font-medium text-slate-900">{c.fornecedorNome}</Td>
-              <Td className="text-slate-600">
-                {(c.itens || []).map((l, idx) => (
-                  <div key={idx} className={idx > 0 ? "mt-1" : ""}>
-                    {l.nome} × {l.qtd} <span className="text-xs text-slate-400">({fmtUSD(l.custo)} un.)</span>
-                  </div>
-                ))}
-              </Td>
-              <Td className="text-slate-600">{c.pagamento || "—"}</Td>
-              <Td right className="font-medium text-slate-900 whitespace-nowrap">{fmtUSD(c.total)}</Td>
-            </tr>
-          ))}
-          {compras.length === 0 && <Vazio colSpan={5}>Nenhuma compra registrada.</Vazio>}
-        </tbody>
-      </table>
+      <ListaCompras compras={lista} />
     </TableShell>
   );
 }
@@ -765,6 +755,20 @@ export function PessoasPage({ tipo }) {
     }
     return r;
   }, [app.vendas, isCliente]);
+  // Fornecedor: quantos produtos, quanto falta pagar e quanto está consignado.
+  const resumoForn = useMemo(() => {
+    if (isCliente) return {};
+    const r = {};
+    const de = (id) => (r[id] ||= { produtos: 0, aPagar: 0, consignado: 0 });
+    for (const i of app.estoque) if (i.fornecedorId) de(i.fornecedorId).produtos++;
+    const fornDaCompra = new Map(app.compras.map((c) => [c.id, c.fornecedorId]));
+    for (const k of app.contas) {
+      const fid = k.fornecedorId || fornDaCompra.get(k.compraId);
+      if (fid && k.status === "Pendente") de(fid).aPagar += k.valor;
+    }
+    for (const c of app.compras) if (c.condicao === "Consignado" && c.fornecedorId) de(c.fornecedorId).consignado += restanteConsignado(c);
+    return r;
+  }, [isCliente, app.estoque, app.compras, app.contas]);
 
   return (
     <TableShell
@@ -798,7 +802,7 @@ export function PessoasPage({ tipo }) {
           <tr className="border-b border-slate-100 bg-slate-50/50">
             <Th>Nome</Th><Th>Contato</Th>
             {isCliente && <><Th>Tabela</Th><Th right>Total comprado</Th><Th>Última compra</Th><Th right>A receber</Th></>}
-            {!isCliente && <Th>Observação</Th>}
+            {!isCliente && <><Th>Observação</Th><Th right>Produtos</Th><Th right>A pagar</Th><Th right>Consignado</Th></>}
             <Th right>Ações</Th>
           </tr>
         </thead>
@@ -808,7 +812,7 @@ export function PessoasPage({ tipo }) {
             return (
               <tr key={p.id} className={linhaCls}>
                 <Td className="font-medium text-slate-900">
-                  {p.nome}
+                  {isCliente ? p.nome : <button onClick={() => app.abrirModal("fornecedorDetalhe", p)} className="text-left font-medium text-slate-900 hover:text-emerald-700 hover:underline">{p.nome}</button>}
                   {isCliente && !app.ehVendedor && <div className="text-xs font-normal text-slate-400">{nomeVendedor(p.vendedorId) ? `Vendedor: ${nomeVendedor(p.vendedorId)}` : "Sem vendedor"}</div>}
                 </Td>
                 <Td className="text-slate-600">{p.contato || "—"}</Td>
@@ -826,7 +830,14 @@ export function PessoasPage({ tipo }) {
                     <Td right className={r?.pendente ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>{r?.pendente ? fmtUSD(r.pendente) : "—"}</Td>
                   </>
                 )}
-                {!isCliente && <Td className="text-slate-500">{p.obs || "—"}</Td>}
+                {!isCliente && (
+                  <>
+                    <Td className="text-slate-500">{p.obs || "—"}</Td>
+                    <Td right className="tabular-nums text-slate-700">{resumoForn[p.id]?.produtos || 0}</Td>
+                    <Td right className={resumoForn[p.id]?.aPagar ? "text-amber-700 font-medium whitespace-nowrap" : "text-slate-400"}>{resumoForn[p.id]?.aPagar ? fmtUSD(resumoForn[p.id].aPagar) : "—"}</Td>
+                    <Td right className={resumoForn[p.id]?.consignado ? "text-violet-700 font-medium whitespace-nowrap" : "text-slate-400"}>{resumoForn[p.id]?.consignado ? fmtUSD(resumoForn[p.id].consignado) : "—"}</Td>
+                  </>
+                )}
                 <Td right>
                   <div className="flex items-center justify-end gap-1">
                     <LinkWhatsApp
@@ -835,6 +846,7 @@ export function PessoasPage({ tipo }) {
                       onClick={isCliente ? () => app.registrarContato(p.id) : undefined}
                     />
                     {isCliente && <button onClick={() => app.abrirModal("listaPrecos", p)} className={btnIcone} title="Enviar lista de preços"><ListChecks size={15} /></button>}
+                    {!isCliente && <button onClick={() => app.abrirModal("fornecedorDetalhe", p)} className={btnIcone} title="Produtos e compras"><Package size={15} /></button>}
                     {isCliente && <button onClick={() => app.abrirModal("agendar", p)} className={btnIcone} title="Agendar próximo contato"><CalendarClock size={15} /></button>}
                     <button onClick={() => app.abrirModal(tipo, p)} className={btnIcone} title="Editar"><Pencil size={15} /></button>
                     <button onClick={() => app.excluirPessoa(tipo, p)} className={btnIconePerigo} title="Excluir"><Trash2 size={15} /></button>
@@ -844,7 +856,7 @@ export function PessoasPage({ tipo }) {
             );
           })}
           {lista.length === 0 && (
-            <Vazio colSpan={isCliente ? 7 : 4}>{data.length === 0 ? `Nenhum ${isCliente ? "cliente" : "fornecedor"} cadastrado.` : "Nenhum resultado."}</Vazio>
+            <Vazio colSpan={isCliente ? 7 : 7}>{data.length === 0 ? `Nenhum ${isCliente ? "cliente" : "fornecedor"} cadastrado.` : "Nenhum resultado."}</Vazio>
           )}
         </tbody>
       </table>

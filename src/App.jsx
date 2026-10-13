@@ -6,6 +6,7 @@ import {
 
 import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao } from "./contexto.js";
 import { fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses, diasAtras } from "./lib/format.js";
+import { FornecedorDetalheModal, ImportarProdutosModal, AcertoModal } from "./fornecedores.jsx";
 import * as db from "./lib/db.js";
 import { lerDadosAntigosDoNavegador, normalizar } from "./lib/migracao.js";
 import { btnPrimario } from "./ui.jsx";
@@ -36,7 +37,7 @@ const NAV = [
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
 
-const VERSAO_DEMO = "5";
+const VERSAO_DEMO = "6";
 // Na demonstração dá para ver o sistema como um vendedor o veria.
 const lerVerComo = () => {
   try { return JSON.parse(localStorage.getItem("indufarma-ver-como") || "null"); } catch (e) { return null; }
@@ -95,13 +96,19 @@ export default function IndufarmaApp() {
   const [modal, setModal] = useState(null);
   const [editando, setEditando] = useState(null);
 
-  const abrirModal = useCallback((nome, item = null) => {
+  // "voltar": ao fechar, reabre a janela de onde veio (ex.: produto aberto dentro do fornecedor).
+  const [voltarPara, setVoltarPara] = useState(null);
+  const abrirModal = useCallback((nome, item = null, voltar = null) => {
+    setVoltarPara(voltar);
     setEditando(item);
     setModal(nome);
   }, []);
   const fecharModal = useCallback(() => {
-    setModal(null);
-    setEditando(null);
+    setVoltarPara((v) => {
+      setModal(v ? v.modal : null);
+      setEditando(v ? v.item : null);
+      return null;
+    });
   }, []);
 
   const lerCambio = () => {
@@ -430,30 +437,115 @@ export default function IndufarmaApp() {
     return true;
   }
 
-  function registrarCompra({ fornecedorId, itens, pagamento }) {
+  // Compra de fornecedor. Condição:
+  //   À vista     sai do caixa agora.
+  //   A prazo     vira conta(s) a pagar, em parcelas mensais a partir do 1º vencimento.
+  //   Consignado  entra no estoque sem pagar; no acerto paga o que vendeu e devolve o resto.
+  function registrarCompra({ fornecedorId, itens, pagamento, condicao = "À vista", vencimento, parcelas = 1, dataAcerto }) {
     if (!itens || itens.length === 0) return;
     const fornecedor = fornecedores.find((f) => f.id === fornecedorId);
+    const nomeForn = fornecedor ? fornecedor.nome : "fornecedor";
     let base = estoqueBase;
     const linhas = itens.map((l) => {
-      const existente = base.find((i) => norm(i.nome) === norm(l.nome));
+      const existente = (l.itemId && base.find((i) => i.id === l.itemId)) || base.find((i) => norm(i.nome) === norm(l.nome));
       if (existente) {
-        base = base.map((i) => (i.id === existente.id ? { ...i, custo: l.custo } : i));
+        base = base.map((i) => (i.id === existente.id ? { ...i, custo: l.custo, ...(i.fornecedorId || !fornecedor ? {} : { fornecedorId, fornecedorNome: fornecedor.nome }) } : i));
         return { itemId: existente.id, nome: existente.nome, qtd: l.qtd, custo: l.custo, subtotal: l.custo * l.qtd };
       }
-      const novo = { id: uid(), nome: l.nome, qtd: 0, baseEm: 0, custo: l.custo, varejo: l.varejo || l.custo * 1.3, atacado: l.atacado || l.custo * 1.15, lojista: l.lojista || l.atacado || l.custo * 1.1, min: 3 };
+      const novo = {
+        id: uid(), nome: l.nome, qtd: 0, baseEm: 0, custo: l.custo, varejo: l.varejo || l.custo * 1.3, atacado: l.atacado || l.custo * 1.15,
+        lojista: l.lojista || l.atacado || l.custo * 1.1, min: 3, origem: "estoque", fornecedorId: fornecedorId || null, fornecedorNome: fornecedor?.nome || "",
+      };
       base = [...base, novo];
       return { itemId: novo.id, nome: novo.nome, qtd: l.qtd, custo: l.custo, subtotal: l.custo * l.qtd };
     });
     setEstoqueBase(base);
     const total = linhas.reduce((s, l) => s + l.subtotal, 0);
-    setCompras((c) => [
-      { id: uid(), fornecedorId, fornecedorNome: fornecedor ? fornecedor.nome : "Sem nome", itens: linhas, total, pagamento, data: todayISO(), ts: Date.now() },
-      ...c,
-    ]);
-    addMovimento(
-      caixaDoPagamento(pagamento), "Saída", total,
-      `Compra de ${fornecedor ? fornecedor.nome : "fornecedor"} (${linhas.length} ${linhas.length === 1 ? "item" : "itens"})`
-    );
+    const id = uid();
+    const consignado = condicao === "Consignado";
+    const compra = {
+      id, fornecedorId, fornecedorNome: fornecedor ? fornecedor.nome : "Sem nome", total, condicao, data: todayISO(), ts: Date.now(),
+      itens: consignado ? linhas.map((l) => ({ ...l, pago: 0, devolvido: 0 })) : linhas,
+      pagamento: condicao === "À vista" ? pagamento : null,
+      ...(consignado ? { status: "Em consignação", dataAcerto: dataAcerto || null, acertos: [] } : {}),
+      ...(condicao === "A prazo" ? { vencimento, parcelas } : {}),
+    };
+    setCompras((c) => [compra, ...c]);
+    const descricao = `Compra de ${nomeForn} (${linhas.length} ${linhas.length === 1 ? "item" : "itens"})`;
+    if (condicao === "À vista") addMovimento(caixaDoPagamento(pagamento), "Saída", total, descricao, { compraId: id });
+    if (condicao === "A prazo") criarParcelas(`Compra de ${nomeForn}`, total, vencimento, parcelas, { compraId: id, fornecedorId });
+  }
+
+  function criarParcelas(nome, total, primeiroVencimento, parcelas, extra) {
+    const qtd = Math.max(1, Math.floor(Number(parcelas) || 1));
+    const valorParcela = Math.floor((total / qtd) * 100) / 100;
+    const novas = Array.from({ length: qtd }, (_, i) => ({
+      id: uid(), nome: qtd > 1 ? `${nome} (${i + 1}/${qtd})` : nome, categoria: "Fornecedor",
+      valor: i === qtd - 1 ? Math.round((total - valorParcela * (qtd - 1)) * 100) / 100 : valorParcela,
+      vencimento: somarMeses(primeiroVencimento || todayISO(), i), status: "Pendente", dataPagamento: null, ...extra,
+    }));
+    setContas((cs) => [...cs, ...novas]);
+  }
+
+  // Acerto do consignado: para cada item, quanto paga (o que vendeu) e quanto devolve.
+  // O que sobra continua consignado para o próximo acerto.
+  function acertarConsignado(compraId, { linhas, forma, caixaKey, vencimento }) {
+    const compra = comprasTodas.find((c) => c.id === compraId);
+    if (!compra) return;
+    const itens = compra.itens.map((l, i) => {
+      const a = linhas[i] || {};
+      return { ...l, pago: Number(l.pago || 0) + Number(a.pagar || 0), devolvido: Number(l.devolvido || 0) + Number(a.devolver || 0) };
+    });
+    const valor = compra.itens.reduce((s, l, i) => s + Number(linhas[i]?.pagar || 0) * l.custo, 0);
+    const devolvidos = compra.itens
+      .map((l, i) => ({ l, q: Number(linhas[i]?.devolver || 0) }))
+      .filter((x) => x.q > 0)
+      .map(({ l, q }) => ({ itemId: l.itemId, nome: l.nome, qtd: -q, custo: l.custo, subtotal: -q * l.custo }));
+    const fechado = itens.every((l) => l.pago + l.devolvido >= l.qtd);
+    const acerto = { data: todayISO(), valor, forma: valor > 0 ? forma : null, devolvidos: devolvidos.reduce((s, l) => s - l.qtd, 0) };
+    const agora = Date.now();
+    setCompras((cs) => {
+      const atualizadas = cs.map((c) => (c.id === compraId ? { ...c, itens, status: fechado ? "Acertado" : "Em consignação", acertos: [...(c.acertos || []), acerto] } : c));
+      if (devolvidos.length === 0) return atualizadas;
+      // A devolução tira os produtos do estoque.
+      const devolucao = {
+        id: uid(), fornecedorId: compra.fornecedorId, fornecedorNome: compra.fornecedorNome, condicao: "Devolução", compraOrigem: compraId,
+        itens: devolvidos, total: devolvidos.reduce((s, l) => s + l.subtotal, 0), data: todayISO(), ts: agora,
+      };
+      return [devolucao, ...atualizadas];
+    });
+    if (valor > 0) {
+      const nome = `Acerto consignado ${compra.fornecedorNome}`;
+      if (forma === "prazo") criarParcelas(nome, valor, vencimento, 1, { compraId, fornecedorId: compra.fornecedorId });
+      else addMovimento(caixaKey, "Saída", valor, nome, { compraId });
+    }
+  }
+
+  // Cadastro em massa a partir da lista do fornecedor. Produto com o mesmo nome é atualizado.
+  function importarProdutos(fornecedorId, linhas, origem) {
+    const fornecedor = fornecedores.find((f) => f.id === fornecedorId);
+    let novos = 0, atualizados = 0;
+    const out = [...estoqueBase];
+    {
+      for (const l of linhas) {
+        const idx = out.findIndex((i) => norm(i.nome) === norm(l.nome));
+        const campos = Object.fromEntries(Object.entries({
+          custo: l.custo, varejo: l.varejo, atacado: l.atacado, lojista: l.lojista, custoVendedor: l.custoVendedor, marca: l.marca, tipo: l.tipo,
+        }).filter(([, v]) => v !== undefined && v !== null && v !== ""));
+        if (idx >= 0) {
+          out[idx] = { ...out[idx], ...campos, fornecedorId, fornecedorNome: fornecedor?.nome || "" };
+          atualizados++;
+        } else {
+          out.push({
+            id: uid(), nome: l.nome, qtd: 0, baseEm: 0, min: origem === "fornecedor" ? 0 : 3, foto: null, marca: "", tipo: "",
+            ...campos, origem, fornecedorId, fornecedorNome: fornecedor?.nome || "",
+          });
+          novos++;
+        }
+      }
+    }
+    setEstoqueBase(out);
+    return { novos, atualizados };
   }
 
   function salvarItem(dados, original) {
@@ -598,7 +690,7 @@ export default function IndufarmaApp() {
     vendasHoje, vendasDoDia, aReceber, vendasACobrar, valorEstoque, unidadesEstoque, estoqueBaixo,
     contasPendentes, totalContasPendentes, contasVencendo, clientesSemPedido, registrarContato, agendarContato,
     abrirModal, fecharModal, editando,
-    addMovimento, registrarVenda, registrarCompra, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
+    addMovimento, registrarVenda, registrarCompra, acertarConsignado, importarProdutos, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
     duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
     salvarOrcamento, atualizarOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
     entregasPendentes, cotacoesAguardando, baixarBackup, restaurarBackup,
@@ -794,6 +886,9 @@ export default function IndufarmaApp() {
 
         {modal === "venda" && <VendaModal />}
         {modal === "compra" && <CompraModal />}
+        {modal === "fornecedorDetalhe" && <FornecedorDetalheModal />}
+        {modal === "importarProdutos" && <ImportarProdutosModal />}
+        {modal === "acerto" && <AcertoModal />}
         {modal === "movimento" && <MovimentoModal />}
         {modal === "item" && <ItemModal />}
         {modal === "cliente" && <PessoaModal tipo="cliente" />}

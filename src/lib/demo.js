@@ -27,7 +27,8 @@ export function dadosDemo() {
   ].map(([id, nome, qtd, custo, varejo, atacado, min]) => ({
     id, nome, qtd, custo, custoVendedor: Math.round(custo * 1.15 * 100) / 100, varejo, atacado,
     lojista: Math.round((atacado - (atacado - custo) * 0.3) * 100) / 100, min, baseEm: 0,
-    marca: DETALHES[id][0], tipo: DETALHES[id][1], origem: "estoque", foto: ["p1", "p3", "p6", "p8"].includes(id) ? "demo-" + id : null,
+    marca: DETALHES[id][0], tipo: DETALHES[id][1], origem: "estoque",
+    fornecedorId: ["p3", "p4", "p8"].includes(id) ? "f2" : "f1", fornecedorNome: ["p3", "p4", "p8"].includes(id) ? "Farma Import CDE" : "Distribuidora Guaraní", foto: ["p1", "p3", "p6", "p8"].includes(id) ? "demo-" + id : null,
   }));
   // Produtos que ficam no fornecedor e são vendidos sob encomenda.
   estoque.push(
@@ -97,6 +98,8 @@ export function dadosDemo() {
   const contas = [
     { id: "k1", nome: "Energia - Farmácia", categoria: "Energia", valor: 85, vencimento: diasAtras(0), status: "Pendente", dataPagamento: null },
     { id: "k2", nome: "Aluguel", categoria: "Aluguel", valor: 600, vencimento: diasAtras(-12), status: "Pendente", dataPagamento: null },
+    { id: "k4", nome: "Compra de Distribuidora Guaraní (1/2)", categoria: "Fornecedor", valor: 72.5, vencimento: diasAtras(-20), status: "Pendente", dataPagamento: null, compraId: "cp2", fornecedorId: "f1" },
+    { id: "k5", nome: "Compra de Distribuidora Guaraní (2/2)", categoria: "Fornecedor", valor: 72.5, vencimento: diasAtras(-50), status: "Pendente", dataPagamento: null, compraId: "cp2", fornecedorId: "f1" },
     { id: "k3", nome: "Internet", categoria: "Internet", valor: 35, vencimento: diasAtras(3), status: "Pago", dataPagamento: diasAtras(4) },
   ];
   const freteiros = [
@@ -119,7 +122,18 @@ export function dadosDemo() {
       },
     },
   ];
-  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras: [], freteiros, orcamentos };
+  // Compras de exemplo: à vista, a prazo em 2 parcelas e uma consignada ainda sem acerto.
+  const lc = (pid, qtd, custo) => ({ itemId: pid, nome: estoque.find((x) => x.id === pid).nome, qtd, custo, subtotal: qtd * custo });
+  const compras = [
+    { id: "cp1", fornecedorId: "f1", fornecedorNome: "Distribuidora Guaraní", condicao: "À vista", pagamento: "PIX", itens: [lc("p7", 30, 0.7)], total: 21, data: diasAtras(3), ts: Date.now() - 3 * 864e5 },
+    { id: "cp2", fornecedorId: "f1", fornecedorNome: "Distribuidora Guaraní", condicao: "A prazo", vencimento: diasAtras(-20), parcelas: 2, itens: [lc("p1", 100, 0.9), lc("p5", 26, 2.1)], total: 144.6, data: diasAtras(10), ts: Date.now() - 10 * 864e5 },
+    {
+      id: "cp3", fornecedorId: "f2", fornecedorNome: "Farma Import CDE", condicao: "Consignado", status: "Em consignação", dataAcerto: diasAtras(-5), acertos: [],
+      itens: [{ ...lc("p8", 12, 6.5), pago: 0, devolvido: 0 }, { ...lc("p3", 20, 1.5), pago: 0, devolvido: 0 }], total: 108, data: diasAtras(8), ts: Date.now() - 8 * 864e5,
+    },
+  ];
+  contas.find((k) => k.id === "k5").valor = 72.1;
+  return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras, freteiros, orcamentos };
 }
 
 // Desenha "fotos" de exemplo (uma caixa de remédio com o nome) e guarda neste navegador.

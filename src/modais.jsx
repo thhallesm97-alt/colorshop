@@ -277,44 +277,100 @@ export function VendaModal() {
   );
 }
 
+export const CONDICOES = [
+  { valor: "À vista", label: "À vista" },
+  { valor: "A prazo", label: "A prazo" },
+  { valor: "Consignado", label: "Consignado" },
+];
+
 export function CompraModal() {
-  const { fornecedores, estoque, registrarCompra, fecharModal } = useApp();
-  const [fornecedorId, setFornecedorId] = useState(fornecedores[0]?.id || "");
+  const { fornecedores, estoque, registrarCompra, fecharModal, editando } = useApp();
+  const [fornecedorId, setFornecedorId] = useState(editando?.fornecedorId ?? fornecedores[0]?.id ?? "");
   const [nome, setNome] = useState("");
   const [qtd, setQtd] = useState(1);
   const [custo, setCusto] = useState(0);
   const [varejo, setVarejo] = useState(0);
   const [atacado, setAtacado] = useState(0);
   const [lojista, setLojista] = useState(0);
+  const [condicao, setCondicao] = useState("À vista");
   const [pagamento, setPagamento] = useState("PIX");
+  const [vencimento, setVencimento] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return isoLocal(d); });
+  const [parcelas, setParcelas] = useState(1);
+  const [dataAcerto, setDataAcerto] = useState("");
   const [carrinho, setCarrinho] = useState([]);
+  const [busca, setBusca] = useState("");
+  const [qtds, setQtds] = useState({});
+  const [custos, setCustos] = useState({});
+
+  const doFornecedor = estoque.filter((i) => fornecedorId && i.fornecedorId === fornecedorId);
+  const listaForn = doFornecedor.filter((i) => produtoCombina(i, busca));
+  const [verOutro, setVerOutro] = useState(doFornecedor.length === 0);
 
   const nomeTrim = nome.trim();
   const existente = nomeTrim ? estoque.find((i) => normalizar(i.nome) === normalizar(nomeTrim)) : null;
   const isNovoProduto = nomeTrim !== "" && !existente;
   const podeAdicionar = nomeTrim !== "" && qtd > 0 && custo > 0 && (!isNovoProduto || (varejo > 0 && atacado > 0 && lojista > 0));
   const total = carrinho.reduce((s, l) => s + l.custo * l.qtd, 0);
+  const valido = carrinho.length > 0 && (condicao !== "A prazo" || (vencimento && parcelas >= 1));
 
   function addAoCarrinho() {
     if (!podeAdicionar) return;
-    setCarrinho((c) => [...c, { key: uid(), nome: existente ? existente.nome : nomeTrim, qtd, custo, varejo, atacado, lojista }]);
+    setCarrinho((c) => [...c, { key: uid(), itemId: existente?.id, nome: existente ? existente.nome : nomeTrim, qtd, custo, varejo, atacado, lojista }]);
     setNome(""); setQtd(1); setCusto(0); setVarejo(0); setAtacado(0); setLojista(0);
   }
+  function addDaLista(i) {
+    const q = Math.floor(n(qtds[i.id]));
+    const c = custos[i.id] ?? i.custo;
+    if (q <= 0 || !(n(c) > 0)) return;
+    setCarrinho((cs) => [...cs, { key: uid(), itemId: i.id, nome: i.nome, qtd: q, custo: n(c) }]);
+    setQtds((x) => ({ ...x, [i.id]: "" }));
+  }
   function finalizar() {
-    if (carrinho.length === 0) return;
-    registrarCompra({ fornecedorId, itens: carrinho, pagamento });
+    if (!valido) return;
+    registrarCompra({ fornecedorId, itens: carrinho, pagamento, condicao, vencimento, parcelas, dataAcerto });
     fecharModal();
   }
+  const valorParcela = parcelas > 0 ? total / parcelas : 0;
 
   return (
     <Modal title="Nova compra (entrada no estoque)" onClose={fecharModal} wide>
       <Field label="Fornecedor">
-        <select className={inputCls} value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+        <select className={inputCls} value={fornecedorId} onChange={(e) => { setFornecedorId(e.target.value); setBusca(""); }}>
           <option value="">Sem cadastro</option>
           {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
         </select>
       </Field>
 
+      {doFornecedor.length > 0 && (
+        <div className="border border-slate-200 rounded-xl mb-4 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <span className="text-xs font-semibold text-slate-600">Produtos deste fornecedor ({doFornecedor.length})</span>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar..." className="text-sm border border-slate-200 rounded-lg px-2.5 py-1 w-40 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+          </div>
+          <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+            {listaForn.map((i) => (
+              <div key={i.id} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="text-slate-900 truncate">{i.nome}</div>
+                  <div className="text-xs text-slate-400">{ehDeFornecedor(i) ? "Sob encomenda" : `${i.qtd} em estoque`}{descricaoProduto(i) ? ` · ${descricaoProduto(i)}` : ""}</div>
+                </div>
+                <label className="text-xs text-slate-400 flex items-center gap-1">Custo
+                  <input type="number" step="0.01" min="0" value={custos[i.id] ?? i.custo ?? ""} onChange={(e) => setCustos((x) => ({ ...x, [i.id]: e.target.value }))} className="w-20 border border-slate-200 rounded-md px-2 py-1 text-sm text-right text-slate-900" />
+                </label>
+                <label className="text-xs text-slate-400 flex items-center gap-1">Qtd
+                  <input type="number" min="0" step="1" value={qtds[i.id] ?? ""} onChange={(e) => setQtds((x) => ({ ...x, [i.id]: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addDaLista(i)} className="w-16 border border-slate-200 rounded-md px-2 py-1 text-sm text-right text-slate-900" />
+                </label>
+                <button type="button" onClick={() => addDaLista(i)} disabled={!(n(qtds[i.id]) > 0)} className="p-1.5 rounded-md text-emerald-700 hover:bg-emerald-50 disabled:text-slate-300" aria-label={`Adicionar ${i.nome}`}><Plus size={16} /></button>
+              </div>
+            ))}
+            {listaForn.length === 0 && <div className="text-sm text-slate-400 text-center py-3">Nenhum produto encontrado.</div>}
+          </div>
+        </div>
+      )}
+
+      {doFornecedor.length > 0 && !verOutro ? (
+        <button type="button" onClick={() => setVerOutro(true)} className="text-sm text-emerald-700 hover:underline mb-4">+ Outro produto (novo ou de outro fornecedor)</button>
+      ) : (
       <div className="border border-slate-200 rounded-xl p-4 mb-4 bg-slate-50">
         <div className="text-xs font-semibold text-slate-600 mb-3">Adicionar produto</div>
         <Field label="Produto" hint={existente ? `Produto já cadastrado · ${existente.qtd} em estoque` : nomeTrim ? "Produto novo: será cadastrado no estoque" : null}>
@@ -348,6 +404,7 @@ export function CompraModal() {
           <Plus size={14} /> Adicionar à compra
         </button>
       </div>
+      )}
 
       <div className="mb-4">
         <div className="text-xs font-semibold text-slate-600 mb-2">Itens da compra ({carrinho.length})</div>
@@ -373,16 +430,38 @@ export function CompraModal() {
         )}
       </div>
 
-      <Field label="Pago com">
-        <select className={inputCls} value={pagamento} onChange={(e) => setPagamento(e.target.value)}>
-          {PAGAMENTOS.map((p) => <option key={p}>{p}</option>)}
-        </select>
+      <Field label="Tipo da compra">
+        <Segmentado valor={condicao} onChange={setCondicao} opcoes={CONDICOES} />
       </Field>
+      {condicao === "À vista" && (
+        <Field label="Pago com">
+          <select className={inputCls} value={pagamento} onChange={(e) => setPagamento(e.target.value)}>
+            {PAGAMENTOS.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+      )}
+      {condicao === "A prazo" && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="1º vencimento"><input type="date" className={inputCls} value={vencimento} onChange={(e) => setVencimento(e.target.value)} /></Field>
+            <Field label="Parcelas (mensais)">
+              <input type="number" min="1" max="24" step="1" className={inputCls} value={parcelas} onChange={(e) => setParcelas(Math.max(1, Math.floor(n(e.target.value))))} />
+            </Field>
+          </div>
+          <p className="text-xs text-slate-500 -mt-2 mb-4">Vai para Contas a pagar{parcelas > 1 ? ` em ${parcelas} parcelas de ${fmtUSD(valorParcela)}` : ""}. Não sai nada do caixa agora.</p>
+        </>
+      )}
+      {condicao === "Consignado" && (
+        <>
+          <Field label="Data do acerto (opcional)"><input type="date" className={inputCls} value={dataAcerto} onChange={(e) => setDataAcerto(e.target.value)} /></Field>
+          <p className="text-xs text-slate-500 -mt-2 mb-4">Os produtos entram no estoque sem pagar. No acerto você paga só o que vendeu e devolve o resto (em Compras ou no fornecedor).</p>
+        </>
+      )}
       <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 mb-4">
         <span className="text-sm text-slate-500">Total da compra</span>
         <span className="text-lg font-semibold text-slate-900">{fmtUSD(total)}</span>
       </div>
-      <button onClick={finalizar} disabled={carrinho.length === 0} className={btnPrimario + " w-full"}>
+      <button onClick={finalizar} disabled={!valido} className={btnPrimario + " w-full"}>
         Finalizar compra
       </button>
     </Modal>
@@ -437,7 +516,7 @@ export function ItemModal() {
   const [marca, setMarca] = useState(editando?.marca || "");
   const [tipo, setTipo] = useState(editando?.tipo || "");
   const [origem, setOrigem] = useState(editando?.origem || "estoque");
-  const [fornecedorId, setFornecedorId] = useState(editando?.fornecedorId || fornecedores[0]?.id || "");
+  const [fornecedorId, setFornecedorId] = useState(editando ? editando.fornecedorId || "" : fornecedores[0]?.id || "");
   const [foto, setFoto] = useState(editando?.foto || null);
   const [carregandoFoto, setCarregandoFoto] = useState(false);
   const [erroFoto, setErroFoto] = useState(null);
@@ -470,7 +549,7 @@ export function ItemModal() {
       {
         nome: nomeTrim, marca: marca.trim(), tipo: tipo.trim(), qtd: deFornecedor ? 0 : qtd, custo,
         custoVendedor: custoVendedor === "" ? null : n(custoVendedor), varejo, atacado, lojista, min: deFornecedor ? 0 : min,
-        origem, fornecedorId: deFornecedor ? fornecedorId : "", fornecedorNome: deFornecedor ? forn?.nome || "" : "", foto: foto || null,
+        origem, fornecedorId: fornecedorId || "", fornecedorNome: fornecedorId ? forn?.nome || "" : "", foto: foto || null,
       },
       isEdit ? editando : null
     );
@@ -526,11 +605,21 @@ export function ItemModal() {
             <div className="text-sm text-amber-700">Cadastre o fornecedor primeiro em Fornecedores.</div>
           ) : (
             <select className={inputCls} value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+              <option value="" disabled>Escolha o fornecedor</option>
               {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
           )}
         </Field>
       ) : (
+        <>
+        {fornecedores.length > 0 && (
+          <Field label="Fornecedor (opcional)">
+            <select className={inputCls} value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+              <option value="">Nenhum</option>
+              {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Quantidade em estoque" hint={isEdit ? "Altere só se contou o estoque." : null}>
             <input type="number" min="0" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
@@ -539,6 +628,7 @@ export function ItemModal() {
             <input type="number" min="0" step="1" className={inputCls} value={min} onChange={(e) => setMin(Math.floor(n(e.target.value)))} />
           </Field>
         </div>
+        </>
       )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Custo real (US$)" hint="Só você vê.">
