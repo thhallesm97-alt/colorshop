@@ -193,7 +193,7 @@ export function DevolucaoModal() {
 // Relatório do mês
 
 export function RelatorioPage() {
-  const { vendas, estoque, vendedores, fornecedores, contas, compras } = useApp();
+  const { vendas, estoque, vendedores, fornecedores, contas, compras, movimentos } = useApp();
   const hoje = new Date();
   const [refMes, setRefMes] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
   const mes = `${refMes.ano}-${String(refMes.mes + 1).padStart(2, "0")}`;
@@ -245,11 +245,11 @@ export function RelatorioPage() {
     const bruto = receita - custo;
     return {
       qtdVendas: doMes.length, receita, custo, bruto, devolvido, comissoes, despesas, porCategoria, liquido: bruto - comissoes - despesas,
-      comprado, recebido, aReceber, vend,
+      comprado, recebido, aReceber, vend, caixa: caixaDoMes(movimentos, mes),
       produtos: [...produtos.values()].sort((a, b) => b.lucro - a.lucro),
       fornecedores: [...porForn.entries()].map(([id, f]) => ({ ...f, nome: id ? fornecedores.find((x) => x.id === id)?.nome || "Fornecedor" : "Sem fornecedor" })).sort((a, b) => b.lucro - a.lucro),
     };
-  }, [vendas, estoque, vendedores, fornecedores, contas, compras, mes]);
+  }, [vendas, estoque, vendedores, fornecedores, contas, compras, movimentos, mes]);
   const margem = r.receita > 0 ? (r.bruto / r.receita) * 100 : 0;
 
   return (
@@ -300,6 +300,8 @@ export function RelatorioPage() {
         </Cartao>
       </div>
 
+      <CaixaDoMes c={r.caixa} />
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Cartao title="Produtos que mais deram lucro">
           <div className="overflow-x-auto">
@@ -340,6 +342,90 @@ export function RelatorioPage() {
         </Cartao>
       </div>
     </>
+  );
+}
+
+// Caixa no mês: saldo no começo, entradas, saídas e saldo no fim de cada caixa,
+// e para onde foi o dinheiro (pelo tipo do lançamento).
+const TIPOS_MOV = [
+  ["Vendas", /^(Venda #|Recebimento|Pagamento parcial|Último pagamento)/],
+  ["Fornecedores", /^(Compra de|Acerto consignado)/],
+  ["Contas", /^Conta:/],
+  ["Comissões", /^Comissão/],
+  ["Frete", /^Frete pago/],
+  ["Devoluções", /^Devolução/],
+];
+const tipoMov = (m) => (TIPOS_MOV.find(([, re]) => re.test(m.descricao || "")) || ["Outros"])[0];
+
+function caixaDoMes(movimentos, mes) {
+  const sinal = (m) => (m.tipo === "Entrada" ? 1 : -1) * n(m.valor);
+  const porCaixa = {};
+  const porTipo = {};
+  for (const k of Object.keys(CAIXA_META)) porCaixa[k] = { inicio: 0, entradas: 0, saidas: 0 };
+  for (const m of movimentos) {
+    const c = porCaixa[m.caixa];
+    if (!c) continue;
+    const d = String(m.data || "");
+    if (d < mes) c.inicio += sinal(m);
+    else if (d.startsWith(mes)) {
+      if (m.tipo === "Entrada") c.entradas += n(m.valor); else c.saidas += n(m.valor);
+      const t = tipoMov(m);
+      const e = (porTipo[t] ||= {});
+      const x = (e[m.caixa] ||= { entradas: 0, saidas: 0 });
+      if (m.tipo === "Entrada") x.entradas += n(m.valor); else x.saidas += n(m.valor);
+    }
+  }
+  for (const c of Object.values(porCaixa)) c.fim = c.inicio + c.entradas - c.saidas;
+  return { porCaixa, porTipo };
+}
+
+function CaixaDoMes({ c }) {
+  const chaves = Object.keys(CAIXA_META);
+  const tipos = [...TIPOS_MOV.map(([t]) => t), "Outros"].filter((t) => c.porTipo[t]);
+  const valor = (k, v) => (v ? CAIXA_META[k].format(v) : "—");
+  return (
+    <Cartao title="Caixa no mês" sub="Quanto entrou e saiu de cada caixa. Cada caixa fica na sua moeda." className="mb-4">
+      <div className="overflow-x-auto -mx-5">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50/50"><Th></Th>{chaves.map((k) => <Th key={k} right>{CAIXA_META[k].label}</Th>)}</tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-slate-50">
+              <Td className="text-slate-600 whitespace-nowrap">Saldo no começo do mês</Td>
+              {chaves.map((k) => <Td key={k} right className="whitespace-nowrap tabular-nums text-slate-600">{CAIXA_META[k].format(c.porCaixa[k].inicio)}</Td>)}
+            </tr>
+            {tipos.map((t) => (
+              <tr key={t} className="border-b border-slate-50">
+                <Td className="text-slate-600 whitespace-nowrap pl-8">{t}</Td>
+                {chaves.map((k) => {
+                  const x = c.porTipo[t][k];
+                  return (
+                    <Td key={k} right className="whitespace-nowrap tabular-nums">
+                      {x?.entradas ? <div className="text-emerald-700">+ {CAIXA_META[k].format(x.entradas)}</div> : null}
+                      {x?.saidas ? <div className="text-red-600">− {CAIXA_META[k].format(x.saidas)}</div> : null}
+                      {!x && <span className="text-slate-300">—</span>}
+                    </Td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr className="border-b border-slate-50">
+              <Td className="text-slate-900 font-medium whitespace-nowrap">Total que entrou</Td>
+              {chaves.map((k) => <Td key={k} right className="whitespace-nowrap tabular-nums text-emerald-700 font-medium">{valor(k, c.porCaixa[k].entradas)}</Td>)}
+            </tr>
+            <tr className="border-b border-slate-50">
+              <Td className="text-slate-900 font-medium whitespace-nowrap">Total que saiu</Td>
+              {chaves.map((k) => <Td key={k} right className="whitespace-nowrap tabular-nums text-red-600 font-medium">{valor(k, c.porCaixa[k].saidas)}</Td>)}
+            </tr>
+            <tr>
+              <Td className="text-slate-900 font-semibold whitespace-nowrap">Saldo no fim do mês</Td>
+              {chaves.map((k) => <Td key={k} right className={`whitespace-nowrap tabular-nums font-semibold ${c.porCaixa[k].fim < 0 ? "text-red-600" : "text-slate-900"}`}>{CAIXA_META[k].format(c.porCaixa[k].fim)}</Td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Cartao>
   );
 }
 
