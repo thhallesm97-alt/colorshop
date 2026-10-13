@@ -60,3 +60,6 @@ export const lucroDaVenda = (venda, estoque) =>
     const custo = l.custoVendedor != null ? Number(l.custoVendedor) : custoComissao(estoque.find((i) => i.id === l.itemId));
     return s + Number(l.subtotal || 0) - custo * Number(l.qtd || 0);
   }, 0);
+
+// Linha com preço diferente do preço da tabela (o preço da tabela fica guardado em precoTabela).
+export const precoFoiAlterado = (l) => l.precoTabela != null && Math.abs(Number(l.precoUnit) - Number(l.precoTabela)) > 0.004;

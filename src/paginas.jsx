@@ -37,11 +37,13 @@ export function VisaoGeral() {
   const {
     cambio, vendas, vendasHoje, vendasDoDia, aReceber, totalContasPendentes, contasPendentes, valorEstoque, unidadesEstoque,
     clientes, fornecedores, caixas, estoque, estoqueBaixo, vendasACobrar, contasVencendo, abrirModal, setPage,
-    clientesSemPedido, registrarContato, ehVendedor,
+    clientesSemPedido, registrarContato, ehVendedor, vendedores, orcamentosParaAprovar,
   } = useApp();
+  // Para o dono: o nome do vendedor que atende cada cliente.
+  const nomeVendedor = (id) => (ehVendedor ? null : vendedores.find((v) => v.id === id)?.nome || null);
   const top = useMemo(() => calcularMaisVendidos(vendas, estoque, diasAtras(29)).slice(0, 5), [vendas, estoque]);
   const maxTop = top[0]?.qtd || 1;
-  const temLembretes = vendasACobrar.length > 0 || contasVencendo.length > 0 || (!ehVendedor && estoqueBaixo.length > 0) || clientesSemPedido.length > 0;
+  const temLembretes = (!ehVendedor && orcamentosParaAprovar.length > 0) || vendasACobrar.length > 0 || contasVencendo.length > 0 || (!ehVendedor && estoqueBaixo.length > 0) || clientesSemPedido.length > 0;
   const hoje = todayISO();
 
   return (
@@ -84,17 +86,30 @@ export function VisaoGeral() {
                   <li key={v.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="font-medium text-slate-900 truncate">{v.clienteNome}</div>
-                      <div className="text-xs text-slate-400">Venda #{v.numero} · {fmtDate(v.data)}</div>
+                      <div className="text-xs text-slate-400">Venda #{v.numero} · {fmtDate(v.data)}{nomeVendedor(v.vendedorId) ? ` · ${nomeVendedor(v.vendedorId)}` : ""}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="font-medium text-slate-900">{fmtUSD(v.valor)}</span>
                       <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
-                      <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                      {!ehVendedor && <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>}
                     </div>
                   </li>
                 );
               })}
             </Lembretes>
+            {!ehVendedor && orcamentosParaAprovar.length > 0 && (
+              <Lembretes titulo={`Preços para aprovar (${orcamentosParaAprovar.length})`} vazio="">
+                {orcamentosParaAprovar.slice(0, 6).map((o) => (
+                  <li key={o.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 truncate">{o.clienteNome}</div>
+                      <div className="text-xs text-slate-400">Orçamento #{o.numero}{o.vendedorNome ? ` · ${o.vendedorNome}` : ""}</div>
+                    </div>
+                    <button onClick={() => abrirModal("orcamentoDetalhe", { id: o.id })} className={btnContorno}>Ver</button>
+                  </li>
+                ))}
+              </Lembretes>
+            )}
             {!ehVendedor && (
             <>
             <Lembretes titulo={`A pagar (${contasVencendo.length})`} vazio="Nenhuma conta vencendo hoje.">
@@ -132,7 +147,7 @@ export function VisaoGeral() {
             )}
             <Lembretes titulo={`Clientes para contatar (${clientesSemPedido.length})`} vazio="Nenhum cliente para contatar hoje.">
               {clientesSemPedido.slice(0, 6).map((c) => (
-                <LinhaSemPedido key={c.id} c={c} registrarContato={registrarContato} abrirModal={abrirModal} />
+                <LinhaSemPedido key={c.id} c={c} vendedor={nomeVendedor(c.vendedorId)} mostrarVendedor={!ehVendedor} registrarContato={registrarContato} abrirModal={abrirModal} />
               ))}
               {clientesSemPedido.length > 6 && (
                 <button onClick={() => setPage("clientes")} className="text-xs font-medium text-amber-800 hover:underline">Ver todos</button>
@@ -261,12 +276,13 @@ export const mensagemSaudade = (c) =>
     ? `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Conforme combinamos, estou passando para ver o seu pedido. Quer que eu te mande a lista de preços atualizada?`
     : `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Faz alguns dias que não recebemos seu pedido. Precisa de algum produto? Posso te mandar nossa lista de preços atualizada.`;
 
-function LinhaSemPedido({ c, registrarContato, abrirModal }) {
+function LinhaSemPedido({ c, vendedor, mostrarVendedor, registrarContato, abrirModal }) {
   const retorno = c.motivo === "retorno";
   return (
     <li className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 text-sm">
       <div className="min-w-0">
         <div className="font-medium text-slate-900 truncate">{c.nome}</div>
+        {mostrarVendedor && <div className="text-xs text-violet-700 truncate">{vendedor ? `Vendedor: ${vendedor}` : "Sem vendedor"}</div>}
         {retorno ? (
           <div className="text-xs text-sky-700 truncate" title={c.notaContato || ""}>
             Retorno {c.proximoContato < todayISO() ? `atrasado desde ${fmtDate(c.proximoContato)}` : "agendado para hoje"}
@@ -509,7 +525,7 @@ export function EstoquePage() {
 }
 
 export function VendasPage() {
-  const { vendas, abrirModal, clientes, vendedores } = useApp();
+  const { vendas, abrirModal, clientes, vendedores, ehVendedor } = useApp();
   const [filtro, setFiltro] = useState("todas");
   const [vend, setVend] = useState("");
   const lista = vendas.filter((v) => (filtro === "todas" || v.status === filtro) && (!vend || (vend === "-" ? !v.vendedorId : v.vendedorId === vend)));
@@ -569,7 +585,11 @@ export function VendasPage() {
                   {v.status === "Pendente" && (
                     <div className="flex items-center justify-end gap-1">
                       <LinkWhatsApp contato={cliente?.contato} texto={`Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, no valor de ${fmtUSD(v.valor)}. Obrigado!`} />
-                      <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                      {ehVendedor ? (
+                        <span className="text-xs text-slate-400 whitespace-nowrap">O dono confirma</span>
+                      ) : (
+                        <button onClick={() => abrirModal("receberVenda", v)} className={btnContorno}>Recebido</button>
+                      )}
                     </div>
                   )}
                 </Td>

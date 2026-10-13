@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Trash2, Pencil, MessageCircle, Copy, Check, Truck, FileText, Send, PackageCheck, Clock } from "lucide-react";
-import { useApp, TABELAS, PAGAMENTOS, CAIXA_META, precoDe, produtoCombina, ehDeFornecedor } from "./contexto.js";
+import { useApp, TABELAS, PAGAMENTOS, CAIXA_META, precoDe, produtoCombina, ehDeFornecedor, precoFoiAlterado } from "./contexto.js";
 import { ProdutoAvulso, CampoVendedor } from "./modais.jsx";
 import { fmtUSD, fmtDate, todayISO, isoLocal, parseISO, normalizar, uid } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
@@ -144,6 +144,7 @@ export function OrcamentosPage() {
                 <Td className={sf.cor}>{sf.texto}</Td>
                 <Td>
                   <Badge status={o.status === "Aberto" ? "Pendente" : o.status === "Aprovado" ? "Pago" : o.status} />
+                  {o.status === "Aberto" && o.aprovacaoPreco === "Pendente" && <div className="text-xs font-medium text-amber-700 mt-1">Preço para aprovar</div>}
                   {o.status === "Aprovado" && o.vendaNumero && <div className="text-xs text-slate-400 mt-1">Venda #{o.vendaNumero}</div>}
                 </Td>
                 <Td right>
@@ -591,7 +592,7 @@ export function FreteiroModal() {
 
 // Cria ou edita um orçamento. Com frete marcado, os freteiros escolhidos recebem o pedido de cotação.
 export function OrcamentoModal() {
-  const { editando, orcamentos, clientes, vendedores, estoque, freteiros, salvarOrcamento, abrirModal, fecharModal } = useApp();
+  const { editando, orcamentos, clientes, vendedores, estoque, freteiros, salvarOrcamento, abrirModal, fecharModal, ehVendedor } = useApp();
   const original = editando?.id ? orcamentos.find((o) => o.id === editando.id) : null;
   const [clienteId, setClienteId] = useState(original?.clienteId || "");
   const [vendedorId, setVendedorId] = useState(original?.vendedorId || "");
@@ -612,8 +613,15 @@ export function OrcamentoModal() {
   const opcoes = estoque.filter((i) => produtoCombina(i, filtro));
   // Ao filtrar, o primeiro produto encontrado já fica escolhido.
   const item = opcoes.find((i) => i.id === itemId) || opcoes[0];
-  const precoUnit = precoDe(item, tabela);
+  const precoTabela = precoDe(item, tabela);
+  // Preço pode ser mudado. Se quem muda é o vendedor, o orçamento espera a aprovação do dono.
+  const [precoManual, setPrecoManual] = useState(null);
+  const chavePreco = `${item?.id}|${tabela}`;
+  const [chaveAnterior, setChaveAnterior] = useState(chavePreco);
+  if (chaveAnterior !== chavePreco) { setChaveAnterior(chavePreco); setPrecoManual(null); }
+  const precoUnit = precoManual != null && precoManual !== "" ? n(precoManual) : precoTabela;
   const total = itens.reduce((s, l) => s + l.subtotal, 0);
+  const algumAlterado = itens.some(precoFoiAlterado);
   const valido = clienteId && itens.length > 0 && (!precisa || (endereco.trim() && escolhidos.size > 0));
 
   function escolherCliente(id) {
@@ -625,9 +633,10 @@ export function OrcamentoModal() {
   }
 
   function adicionar() {
-    if (!item || !(qtd > 0)) return;
-    setItens((l) => [...l, { key: uid(), itemId: item.id, itemNome: item.nome, qtd, tipoVenda: tabela, precoUnit, subtotal: precoUnit * qtd }]);
+    if (!item || !(qtd > 0) || !(precoUnit > 0)) return;
+    setItens((l) => [...l, { key: uid(), itemId: item.id, itemNome: item.nome, qtd, tipoVenda: tabela, precoUnit, precoTabela, subtotal: precoUnit * qtd }]);
     setQtd(1);
+    setPrecoManual(null);
   }
 
   function salvar() {
@@ -684,7 +693,12 @@ export function OrcamentoModal() {
         <Field label="Tabela de preço"><Segmentado valor={tabela} onChange={setTabela} opcoes={TABELAS} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Quantidade"><input type="number" min="1" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} /></Field>
-          <Field label="Valor unitário"><input disabled className={inputCls} value={item ? fmtUSD(precoUnit) : ""} /></Field>
+          <Field
+            label="Valor unitário (US$)"
+            hint={item && Math.abs(precoUnit - precoTabela) > 0.004 ? `Tabela: ${fmtUSD(precoTabela)}${ehVendedor ? " · vai para aprovação do dono" : ""}` : "Pode mudar o preço."}
+          >
+            <input type="number" step="0.01" min="0" className={inputCls} value={precoManual ?? (item ? precoTabela : "")} onChange={(e) => setPrecoManual(e.target.value)} />
+          </Field>
         </div>
         {item && !ehDeFornecedor(item) && qtd > item.qtd && <div className="text-xs text-amber-700 -mt-2 mb-3">Atenção: só há {item.qtd} em estoque.</div>}
         <button type="button" onClick={adicionar} disabled={!item || !(qtd > 0)} className={btnSecundario + " w-full border-emerald-700/40 text-emerald-800"}>
@@ -700,7 +714,10 @@ export function OrcamentoModal() {
             <div key={l.key || idx} className="flex items-center justify-between px-3 py-2 text-sm">
               <div>
                 <div className="font-medium text-slate-900">{l.itemNome} × {l.qtd}</div>
-                <div className="text-xs text-slate-400">{l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
+                <div className="text-xs text-slate-400">
+                  {l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.
+                  {precoFoiAlterado(l) && <span className="text-amber-700"> · tabela {fmtUSD(l.precoTabela)}</span>}
+                </div>
                 {l.itemId && !ehDeFornecedor(estoque.find((i) => i.id === l.itemId)) && (estoque.find((i) => i.id === l.itemId)?.qtd ?? 0) < l.qtd && (
                   <div className="text-xs text-amber-700">Só {estoque.find((i) => i.id === l.itemId)?.qtd ?? 0} em estoque agora</div>
                 )}
@@ -755,6 +772,11 @@ export function OrcamentoModal() {
       )}
 
       <Field label="Observação do orçamento"><input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Opcional" /></Field>
+      {ehVendedor && algumAlterado && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Você mudou o preço de algum produto. O orçamento vai para o dono aprovar antes de enviar ao cliente.
+        </div>
+      )}
       <button disabled={!valido} onClick={salvar} className={btnPrimario + " w-full"}>
         {original ? "Salvar orçamento" : precisa ? "Salvar e pedir cotações" : "Salvar orçamento"}
       </button>
@@ -763,7 +785,7 @@ export function OrcamentoModal() {
 }
 
 export function OrcamentoDetalheModal() {
-  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, abrirModal, fecharModal, setPage } = useApp();
+  const { editando, orcamentos, clientes, atualizarOrcamento, excluirOrcamento, converterOrcamento, aprovarPrecoOrcamento, abrirModal, fecharModal, setPage, ehVendedor } = useApp();
   const o = orcamentos.find((x) => x.id === editando?.id);
   const [pagamento, setPagamento] = useState("PIX");
   const [condicao, setCondicao] = useState("À vista");
@@ -775,6 +797,7 @@ export function OrcamentoDetalheModal() {
   const respondidas = cotacoes.filter((c) => c.status === "Respondido");
   const escolhida = cotacoes.find((c) => c.freteiroId === o.frete?.escolhida);
   const aberto = o.status === "Aberto";
+  const aguardando = aberto && o.aprovacaoPreco === "Pendente";
   const msgCliente = mensagemCliente(o, comNomes);
   const linkCliente = linkWhatsApp(cliente?.contato, msgCliente);
   const msgGrupo = o.frete?.precisa ? mensagemFreteiro(o, { nome: "pessoal" }) : "";
@@ -803,10 +826,31 @@ export function OrcamentoDetalheModal() {
         </div>
       )}
 
+      {aguardando && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+          <div className="font-medium">{o.vendedorNome || "O vendedor"} mudou o preço. {ehVendedor ? "Aguardando a aprovação do dono." : "Aprovar?"}</div>
+          {!ehVendedor && (
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => aprovarPrecoOrcamento(o.id, true)} className={btnPrimario}><Check size={14} /> Aprovar preço</button>
+              <button onClick={() => aprovarPrecoOrcamento(o.id, false)} className={btnSecundario}>Recusar (volta ao preço da tabela)</button>
+            </div>
+          )}
+        </div>
+      )}
+      {aberto && o.aprovacaoPreco === "Recusado" && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">O dono recusou o preço alterado. O orçamento voltou ao preço da tabela.</div>
+      )}
+      {aberto && o.aprovacaoPreco === "Aprovado" && o.itens.some(precoFoiAlterado) && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Preço alterado aprovado pelo dono.</div>
+      )}
+
       <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 mb-5">
         {o.itens.map((l, idx) => (
           <div key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
-            <span className="text-slate-800">{l.itemNome} × {l.qtd} <span className="text-xs text-slate-400">({l.tipoVenda})</span></span>
+            <span className="text-slate-800">
+              {l.itemNome} × {l.qtd} <span className="text-xs text-slate-400">({l.tipoVenda} · {fmtUSD(l.precoUnit)} un.)</span>
+              {precoFoiAlterado(l) && <span className="text-xs text-amber-700"> · tabela {fmtUSD(l.precoTabela)}</span>}
+            </span>
             <span className="font-medium text-slate-900">{fmtUSD(l.subtotal)}</span>
           </div>
         ))}
@@ -835,7 +879,7 @@ export function OrcamentoDetalheModal() {
         </div>
       )}
 
-      {aberto && (
+      {aberto && !aguardando && (
         <div className="mb-5">
           <div className="text-sm font-semibold text-slate-900 mb-1">Enviar ao cliente</div>
           <div className="text-xs text-slate-400 mb-2">
@@ -869,6 +913,7 @@ export function OrcamentoDetalheModal() {
       {aberto && (
         <div className="border-t border-slate-100 pt-4">
           <div className="text-sm font-semibold text-slate-900 mb-2">Cliente aprovou? Fechar a venda</div>
+          {aguardando && <div className="text-xs text-amber-700 mb-2">Só dá para enviar ao cliente e fechar a venda depois que o dono aprovar o preço.</div>}
           {escolhida && (
             <div className="text-xs text-slate-500 mb-2">
               Frete escolhido: {escolhida.nome} · {fmtUSD(escolhida.valor)} · {dias(escolhida.prazoDias)}. Total com frete: <span className="font-semibold text-slate-900">{fmtUSD(n(o.total) + n(escolhida.valor))}</span>
@@ -888,7 +933,7 @@ export function OrcamentoDetalheModal() {
             </Field>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button onClick={fechar} className={btnPrimario + " flex-1"}><Check size={15} /> Transformar em venda</button>
+            <button onClick={fechar} disabled={aguardando} title={aguardando ? "Espera a aprovação do preço" : undefined} className={btnPrimario + " flex-1"}><Check size={15} /> Transformar em venda</button>
             <button onClick={() => abrirModal("orcamento", { id: o.id })} className={btnSecundario}><Pencil size={14} /> Editar</button>
             <button onClick={() => window.confirm("Cancelar este orçamento?") && (atualizarOrcamento(o.id, { status: "Cancelado" }), fecharModal())} className={btnSecundario}>Cancelar</button>
           </div>

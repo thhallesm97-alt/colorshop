@@ -120,7 +120,7 @@ export function CampoVendedor({ valor, onChange }) {
 }
 
 export function VendaModal() {
-  const { clientes, estoque, vendedores, registrarVenda, fecharModal } = useApp();
+  const { clientes, estoque, vendedores, registrarVenda, fecharModal, ehVendedor } = useApp();
   const disponiveis = estoque.filter((i) => ehDeFornecedor(i) || i.qtd > 0);
   const ativos = vendedores.filter((v) => v.ativo !== false);
   const [clienteId, setClienteId] = useState("");
@@ -143,14 +143,22 @@ export function VendaModal() {
   const item = opcoes.find((i) => i.id === itemId) || opcoes[0];
   const jaNoCarrinho = carrinho.filter((l) => l.itemId === item?.id).reduce((s, l) => s + l.qtd, 0);
   const disponivel = item ? (ehDeFornecedor(item) ? Infinity : item.qtd - jaNoCarrinho) : 0;
-  const precoUnit = precoDe(item, tipoVenda);
+  const precoTabela = precoDe(item, tipoVenda);
+  // O dono pode mudar o preço na hora da venda. O vendedor muda só no orçamento, com aprovação.
+  const [precoManual, setPrecoManual] = useState(null);
+  const chavePreco = `${item?.id}|${tipoVenda}`;
+  const [chaveAnterior, setChaveAnterior] = useState(chavePreco);
+  if (chaveAnterior !== chavePreco) { setChaveAnterior(chavePreco); setPrecoManual(null); }
+  const precoUnit = !ehVendedor && precoManual != null && precoManual !== "" ? n(precoManual) : precoTabela;
   const total = carrinho.reduce((s, l) => s + l.precoUnit * l.qtd, 0);
-  const podeAdicionar = item && qtd >= 1 && Number.isInteger(qtd) && qtd <= disponivel;
+  const podeAdicionar = item && qtd >= 1 && Number.isInteger(qtd) && qtd <= disponivel && precoUnit > 0;
 
   function addAoCarrinho() {
     if (!podeAdicionar) return;
-    setCarrinho((c) => [...c, { key: uid(), itemId: item.id, nome: item.nome, qtd, tipoVenda, precoUnit }]);
+    const alterado = Math.abs(precoUnit - precoTabela) > 0.004;
+    setCarrinho((c) => [...c, { key: uid(), itemId: item.id, nome: item.nome, qtd, tipoVenda, precoUnit, precoTabela, ...(alterado ? { precoFixo: true } : {}) }]);
     setQtd(1);
+    setPrecoManual(null);
     setErro(null);
   }
   function finalizar() {
@@ -218,9 +226,15 @@ export function VendaModal() {
               <Field label={disponivel === Infinity ? "Quantidade (sob encomenda)" : `Quantidade (${Math.max(0, disponivel)} disp.)`}>
                 <input type="number" min="1" step="1" max={disponivel === Infinity ? undefined : disponivel} className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
               </Field>
-              <Field label="Valor unitário">
-                <input type="text" disabled className={inputCls} value={item ? fmtUSD(precoUnit) : ""} />
-              </Field>
+              {ehVendedor ? (
+                <Field label="Valor unitário" hint="Para mudar o preço, faça um orçamento.">
+                  <input type="text" disabled className={inputCls} value={item ? fmtUSD(precoUnit) : ""} />
+                </Field>
+              ) : (
+                <Field label="Valor unitário (US$)" hint={item && Math.abs(precoUnit - precoTabela) > 0.004 ? `Tabela: ${fmtUSD(precoTabela)}` : "Pode mudar o preço."}>
+                  <input type="number" step="0.01" min="0" className={inputCls} value={precoManual ?? (item ? precoTabela : "")} onChange={(e) => setPrecoManual(e.target.value)} />
+                </Field>
+              )}
             </div>
             <button type="button" onClick={addAoCarrinho} disabled={!podeAdicionar} className={btnSecundario + " w-full border-emerald-700/40 text-emerald-800"}>
               <Plus size={14} /> Adicionar à venda
@@ -239,7 +253,10 @@ export function VendaModal() {
               <div key={l.key} className="flex items-center justify-between px-3 py-2 text-sm">
                 <div>
                   <div className="font-medium text-slate-900">{l.nome} × {l.qtd}</div>
-                  <div className="text-xs text-slate-400">{l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.</div>
+                  <div className="text-xs text-slate-400">
+                    {l.avulso ? "Não cadastrado" : l.tipoVenda} · {fmtUSD(l.precoUnit)} un.
+                    {l.precoFixo && !l.avulso && <span className="text-amber-700"> · preço alterado (tabela {fmtUSD(l.precoTabela)})</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-medium text-slate-900">{fmtUSD(l.precoUnit * l.qtd)}</span>
@@ -266,6 +283,7 @@ export function VendaModal() {
           </select>
         </Field>
       </div>
+      {ehVendedor && <p className="text-xs text-slate-500 -mt-2 mb-4">A venda fica como "a receber" até o dono confirmar o pagamento.</p>}
       <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 mb-4">
         <span className="text-sm text-slate-500">Total da venda</span>
         <span className="text-lg font-semibold text-slate-900">{fmtUSD(total)}</span>

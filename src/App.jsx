@@ -4,7 +4,7 @@ import {
   Home, Loader2, Receipt, TrendingUp, Menu, BadgeDollarSign, FileText, PackageCheck, X, Cloud, CloudOff, HardDrive, AlertTriangle, Monitor,
 } from "lucide-react";
 
-import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao } from "./contexto.js";
+import { AppCtx, CAIXA_META, CAMBIO_PADRAO, caixaDoPagamento, precoDe, DIAS_SEM_PEDIDO, ehDeFornecedor, custoComissao, precoFoiAlterado } from "./contexto.js";
 import { fmtDateLong, fmtHora, todayISO, uid, normalizar as norm, somarMeses, diasAtras } from "./lib/format.js";
 import { FornecedorDetalheModal, ImportarProdutosModal, AcertoModal } from "./fornecedores.jsx";
 import * as db from "./lib/db.js";
@@ -37,7 +37,7 @@ const NAV = [
   { key: "cambio", label: "Câmbio", icon: RefreshCw },
 ];
 
-const VERSAO_DEMO = "6";
+const VERSAO_DEMO = "7";
 // Na demonstração dá para ver o sistema como um vendedor o veria.
 const lerVerComo = () => {
   try { return JSON.parse(localStorage.getItem("indufarma-ver-como") || "null"); } catch (e) { return null; }
@@ -267,6 +267,7 @@ export default function IndufarmaApp() {
   const valorEstoque = useMemo(() => proprios.reduce((s, i) => s + Math.max(0, i.qtd) * i.custo, 0), [proprios]);
   const unidadesEstoque = useMemo(() => proprios.reduce((s, i) => s + Math.max(0, i.qtd), 0), [proprios]);
   const estoqueBaixo = useMemo(() => proprios.filter((i) => i.qtd <= i.min), [proprios]);
+  const orcamentosParaAprovar = useMemo(() => orcamentos.filter((o) => o.status === "Aberto" && o.aprovacaoPreco === "Pendente"), [orcamentos]);
   const contasPendentes = useMemo(() => contas.filter((c) => c.status === "Pendente"), [contas]);
   const totalContasPendentes = useMemo(() => contasPendentes.reduce((s, c) => s + c.valor, 0), [contasPendentes]);
   const contasVencendo = useMemo(
@@ -368,11 +369,12 @@ export default function IndufarmaApp() {
         id: uid(), numero, clienteId, clienteNome: cliente ? cliente.nome : "Sem nome",
         vendedorId: vendedor ? vendedor.id : "", vendedorNome: vendedor ? vendedor.nome : "", itens: linhas, valor, valorProdutos, pagamento, condicao,
         frete: frete ? { ...frete, status: "A enviar" } : null, orcamentoId,
-        status: condicao === "À vista" ? "Pago" : "Pendente", data: todayISO(), ts: Date.now(),
+        // Venda do vendedor fica pendente: só o dono confirma que recebeu.
+        status: condicao === "À vista" && !ehVendedor ? "Pago" : "Pendente", data: todayISO(), ts: Date.now(),
       },
       ...v,
     ]);
-    if (condicao === "À vista") addMovimento(caixaDoPagamento(pagamento), "Entrada", valor, `Venda #${numero}`, vendedor ? { vendedorId: vendedor.id } : {});
+    if (condicao === "À vista" && !ehVendedor) addMovimento(caixaDoPagamento(pagamento), "Entrada", valor, `Venda #${numero}`, vendedor ? { vendedorId: vendedor.id } : {});
     return { numero };
   }
 
@@ -386,6 +388,9 @@ export default function IndufarmaApp() {
 
   // ---- orçamentos e frete ----
   function salvarOrcamento(dados, original) {
+    // Preço diferente da tabela: se foi o vendedor, espera a aprovação do dono.
+    const alterado = (dados.itens || []).some(precoFoiAlterado);
+    dados = { ...dados, aprovacaoPreco: alterado ? (ehVendedor ? "Pendente" : "Aprovado") : null };
     if (original) {
       setOrcamentos((os) => os.map((o) => (o.id === original.id ? { ...o, ...dados } : o)));
       return original.id;
@@ -404,6 +409,16 @@ export default function IndufarmaApp() {
     setOrcamentos((os) => os.map((o) => (o.id === id ? { ...o, ...(typeof mudancas === "function" ? mudancas(o) : mudancas) } : o)));
   }
 
+  // Dono aprova o preço do vendedor, ou recusa e o orçamento volta ao preço da tabela.
+  function aprovarPrecoOrcamento(id, aprovar) {
+    if (ehVendedor) return;
+    atualizarOrcamento(id, (o) => {
+      if (aprovar) return { aprovacaoPreco: "Aprovado", precoAprovadoEm: todayISO() };
+      const itens = o.itens.map((l) => (precoFoiAlterado(l) ? { ...l, precoUnit: l.precoTabela, subtotal: l.precoTabela * l.qtd } : l));
+      return { itens, total: itens.reduce((s, l) => s + l.subtotal, 0), aprovacaoPreco: "Recusado", precoRecusadoEm: todayISO() };
+    });
+  }
+
   function excluirOrcamento(o) {
     if (!window.confirm(`Excluir o orçamento #${o.numero}?`)) return false;
     setOrcamentos((os) => os.filter((x) => x.id !== o.id));
@@ -412,6 +427,7 @@ export default function IndufarmaApp() {
 
   // Transforma o orçamento em venda, com o frete escolhido.
   function converterOrcamento(o, { pagamento, condicao }) {
+    if (o.aprovacaoPreco === "Pendente") return "O preço foi alterado e ainda espera a aprovação do dono.";
     const cot = o.frete?.precisa ? (o.frete.cotacoes || []).find((c) => c.freteiroId === o.frete.escolhida) : null;
     if (o.frete?.precisa && !cot) return "Escolha uma das opções de frete antes de fechar a venda.";
     const frete = cot
@@ -593,6 +609,7 @@ export default function IndufarmaApp() {
   }
 
   function marcarVendaPaga(id, caixaKey) {
+    if (ehVendedor) return;
     const venda = vendas.find((v) => v.id === id);
     if (!venda || venda.status === "Pago") return;
     setVendas((vs) => vs.map((v) => (v.id === id ? { ...v, status: "Pago", dataRecebimento: todayISO() } : v)));
@@ -692,8 +709,8 @@ export default function IndufarmaApp() {
     abrirModal, fecharModal, editando,
     addMovimento, registrarVenda, registrarCompra, acertarConsignado, importarProdutos, salvarItem, excluirItem, pagarConta, marcarVendaPaga,
     duplicarConta, salvarConta, excluirConta, salvarPessoa, excluirPessoa, salvarVendedor, excluirVendedor, atualizarVenda, atualizarEntrega,
-    salvarOrcamento, atualizarOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
-    entregasPendentes, cotacoesAguardando, baixarBackup, restaurarBackup,
+    salvarOrcamento, atualizarOrcamento, aprovarPrecoOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
+    entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, baixarBackup, restaurarBackup,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
   };
 
@@ -755,6 +772,7 @@ export default function IndufarmaApp() {
   const contadores = {
     estoque: ehVendedor ? 0 : estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
     frete: entregasPendentes.length + cotacoesAguardando.length,
+    orcamentos: ehVendedor ? 0 : orcamentosParaAprovar.length,
   };
 
   const sidebar = (

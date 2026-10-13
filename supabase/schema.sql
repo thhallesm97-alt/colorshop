@@ -100,10 +100,12 @@ revoke insert, update, delete on table public.registros from authenticated;
 create or replace function public.salvar_registros(linhas jsonb) returns void
 language plpgsql security definer set search_path = '' as $$
 declare
-  v_papel text := public.meu_papel();
-  v_vend  text := public.meu_vendedor();
-  r       record;
-  atual   public.registros;
+  v_papel  text := public.meu_papel();
+  v_vend   text := public.meu_vendedor();
+  r        record;
+  atual    public.registros;
+  v_existe boolean;
+  v_dados  jsonb;
 begin
   if v_papel is null then
     raise exception 'Este login não tem acesso ao sistema.' using errcode = '42501';
@@ -112,20 +114,31 @@ begin
     select * from jsonb_to_recordset(linhas)
       as x(colecao text, id text, dados jsonb, excluido boolean, atualizado_em bigint, criado_em bigint)
   loop
+    v_dados := r.dados;
     if v_papel = 'vendedor' then
-      -- Vendedor só grava clientes, vendas, orçamentos e a entrada no caixa das próprias vendas.
+      -- Vendedor só grava os próprios clientes, vendas e orçamentos; não mexe no caixa.
       -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
-      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'movimentos') then continue; end if;
+      if r.colecao not in ('clientes', 'vendas', 'orcamentos') then continue; end if;
       select * into atual from public.registros where colecao = r.colecao and id = r.id;
-      if found and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
+      v_existe := found;
+      if v_existe and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
       if coalesce(r.excluido, false) then
-        if r.colecao in ('vendas', 'movimentos') then continue; end if;
+        if r.colecao = 'vendas' then continue; end if;
       elsif coalesce(r.dados ->> 'vendedorId', '') <> v_vend then
         continue;
       end if;
+      -- Só o dono marca a venda como paga: o vendedor mantém o status que já estava.
+      if r.colecao = 'vendas' and v_dados is not null then
+        v_dados := jsonb_set(v_dados, '{status}', case when v_existe then coalesce(atual.dados -> 'status', '"Pendente"'::jsonb) else '"Pendente"'::jsonb end);
+      end if;
+      -- Só o dono aprova o preço alterado no orçamento.
+      if r.colecao = 'orcamentos' and coalesce(v_dados ->> 'aprovacaoPreco', '') = 'Aprovado'
+         and not (v_existe and coalesce(atual.dados ->> 'aprovacaoPreco', '') = 'Aprovado') then
+        v_dados := jsonb_set(v_dados, '{aprovacaoPreco}', '"Pendente"'::jsonb);
+      end if;
     end if;
     insert into public.registros (colecao, id, dados, excluido, atualizado_em, criado_em)
-    values (r.colecao, r.id, r.dados, coalesce(r.excluido, false), r.atualizado_em, r.criado_em)
+    values (r.colecao, r.id, v_dados, coalesce(r.excluido, false), r.atualizado_em, r.criado_em)
     on conflict (colecao, id) do update
       -- Um registro excluído guarda os últimos dados, para a exclusão chegar a quem podia vê-lo.
       set dados = case when excluded.excluido then coalesce(public.registros.dados, excluded.dados) else excluded.dados end,

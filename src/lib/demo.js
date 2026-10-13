@@ -133,6 +133,15 @@ export function dadosDemo() {
     },
   ];
   contas.find((k) => k.id === "k5").valor = 72.1;
+  // Orçamento em que o vendedor baixou o preço: espera a aprovação do dono.
+  const lp = linha("p5", 50, "Lojista");
+  const precoTabela = lp.precoUnit;
+  const itensO2 = [{ ...lp, precoTabela, precoUnit: 3.4, subtotal: 3.4 * 50 }];
+  orcamentos.push({
+    id: "o2", numero: "LO-1", status: "Aberto", data: diasAtras(0), ts: 0, clienteId: "c4", clienteNome: "Farmacia San Roque",
+    vendedorId: "s1", vendedorNome: "Lucas Ortiz", itens: itensO2, total: itensO2[0].subtotal, obs: "Cliente pediu desconto por levar 50", aprovacaoPreco: "Pendente",
+    frete: { precisa: false, endereco: "", cidade: "", obsEntrega: "", cotacoes: [], escolhida: null },
+  });
   return { estoque, clientes, fornecedores, vendedores, vendas, movimentos, contas, compras, freteiros, orcamentos };
 }
 
