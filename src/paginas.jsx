@@ -1000,10 +1000,10 @@ export function VendedoresPage() {
         {!ehVendedor && <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Vendido pelos vendedores" value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
-        <StatCard label="Comissões a pagar" value={fmtUSD(totalComissoes)} sub="Sobre o lucro das vendas do mês" icon={Receipt} tom="violet" />
-        <StatCard label="Vendedores" value={vendedores.filter((v) => v.ativo !== false).length} sub="Ativos" icon={Users} tom="slate" />
+      <div className={`grid grid-cols-1 ${ehVendedor ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-4 mb-6`}>
+        <StatCard label={ehVendedor ? "Suas vendas" : "Vendido pelos vendedores"} value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
+        <StatCard label={ehVendedor ? "Sua comissão" : "Comissões a pagar"} value={fmtUSD(totalComissoes)} sub={ehVendedor ? "No mês selecionado" : "Sobre o lucro das vendas do mês"} icon={Receipt} tom="violet" />
+        {!ehVendedor && <StatCard label="Vendedores" value={vendedores.filter((v) => v.ativo !== false).length} sub="Ativos" icon={Users} tom="slate" />}
       </div>
 
       {vendedores.length === 0 ? (
@@ -1046,12 +1046,15 @@ export function VendedoresPage() {
                   <div className="text-xs text-slate-400 mb-4">Sem meta definida.</div>
                 )}
 
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-2 px-1">
-                  <span>Lucro das vendas</span>
-                  <span className="font-medium text-slate-700">{fmtUSD(lucro)}</span>
-                </div>
+                {/* O lucro fica só para o dono; o vendedor vê apenas a comissão dele. */}
+                {!ehVendedor && (
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-2 px-1">
+                    <span>Lucro das vendas</span>
+                    <span className="font-medium text-slate-700">{fmtUSD(lucro)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between rounded-lg bg-violet-50 px-3 py-2">
-                  <span className="text-xs font-medium text-violet-700">Comissão do mês ({fmtNum(vd.comissao, 1)}% do lucro)</span>
+                  <span className="text-xs font-medium text-violet-700">{ehVendedor ? "Sua comissão do mês" : `Comissão do mês (${fmtNum(vd.comissao, 1)}% do lucro)`}</span>
                   <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
                 </div>
               </div>
