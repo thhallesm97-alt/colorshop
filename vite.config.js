@@ -2,7 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+// Data e hora da publicação, mostrada no menu para saber se o navegador já pegou a versão nova.
+const VERSAO = new Date().toLocaleString("pt-BR", { timeZone: "America/Asuncion", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
 export default defineConfig({
+  define: { __VERSAO__: JSON.stringify(VERSAO) },
   plugins: [
     react(),
     // Deixa o sistema abrir sem internet e permite instalar como aplicativo no computador.

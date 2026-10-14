@@ -763,7 +763,21 @@ export function PagarContaModal() {
       <div className="text-sm text-slate-600 mb-4">
         Valor: <span className="font-semibold text-slate-900">{fmtConta(conta)}</span> · Vencimento: {fmtDate(conta.vencimento)}
       </div>
-      <Field label="Pago com (caixa)"><SelectCaixa value={caixaKey} onChange={trocarCaixa} /></Field>
+      <Field label="Pago com (caixa)">
+        <div className="grid grid-cols-2 gap-2">
+          {["pix", "real", "dolar", "usdt"].map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => trocarCaixa(k)}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${caixaKey === k ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600" : "border-slate-200 hover:bg-slate-50"}`}
+            >
+              <div className="text-sm font-medium text-slate-800">{CAIXA_META[k].label}</div>
+              <div className="text-xs text-slate-500">{CAIXA_META[k].format(contaNaMoedaDoCaixa(conta, k))}</div>
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field label={`Quanto saiu do caixa (${caixaEmReais(caixaKey) ? "R$" : caixaKey === "usdt" ? "USDT" : "US$"})`}>
         <input type="number" step="0.01" min="0" className={inputCls} value={valor} onChange={(e) => setValor(e.target.value)} />
       </Field>

@@ -1131,6 +1131,7 @@ export default function IndufarmaApp() {
           </div>
         )}
         <StatusSync sync={sync} onClick={() => abrirModal("dados")} />
+        <div className="text-[10px] text-slate-400 px-1">Versão {__VERSAO__}</div>
       </div>
     </aside>
   );
