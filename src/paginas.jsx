@@ -1144,7 +1144,7 @@ export function VendedoresPage() {
                       <div className="flex justify-between text-emerald-700"><span>Bônus da meta (+{fmtNum(c.pctBonus, 1)}%)</span><span>{fmtUSD(c.bonus)}</span></div>
                     )}
                     {c.indicados.map((x) => (
-                      <div key={x.vendedor.id} className="flex justify-between"><span>Indicação: {x.vendedor.nome} ({fmtNum(c.pctIndicacao, 1)}%)</span><span>{fmtUSD(x.valor)}</span></div>
+                      <div key={x.vendedor.id} className="flex justify-between"><span>Indicação: {x.vendedor.nome} ({fmtNum(c.pctIndicacao, 1)}%{x.bateuMeta ? ` + bônus ${fmtNum(c.pctBonus, 1)}%, bateu a meta` : ""})</span><span>{fmtUSD(x.valor)}</span></div>
                     ))}
                   </div>
                 )}
