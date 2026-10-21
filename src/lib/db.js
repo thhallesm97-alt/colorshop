@@ -25,6 +25,7 @@ export const COLECOES = {
   historico: "desc",
   fechamentos: "desc",
   pedidosProduto: "desc",
+  indicacoes: "desc",
   config: "asc",
 };
 
@@ -269,6 +270,21 @@ export async function definirLogin(usuario, senha) {
   if (!navigator.onLine) throw new Error("Precisa de internet para criar ou trocar a senha.");
   const { error } = await sb.rpc("definir_login", { p_usuario: usuario, p_senha: senha });
   if (error) throw new Error(error.message);
+}
+
+// Para o vendedor ver a comissão de indicação: os vendedores que ele indicou e as vendas
+// deles (só produtos, quantidades e o custo para vendedores; sem os clientes).
+export async function vendasDosIndicados() {
+  if (!sb || !navigator.onLine) return null;
+  const { data, error } = await sb.rpc("vendas_dos_indicados");
+  if (error) throw new Error(error.message);
+  const indicados = new Map();
+  const vendas = [];
+  for (const l of data || []) {
+    if (!indicados.has(l.vendedor_id)) indicados.set(l.vendedor_id, { id: l.vendedor_id, nome: l.vendedor_nome, indicadoPor: l.indicado_por });
+    if (l.venda) vendas.push(l.venda);
+  }
+  return { indicados: [...indicados.values()], vendas };
 }
 
 // Ao sair, os dados deste computador são apagados (ficam na nuvem), para que outra pessoa

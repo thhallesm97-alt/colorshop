@@ -81,7 +81,7 @@ $$;
 create or replace function public.vendedor_ve(p_colecao text, p_id text, p_dados jsonb) returns boolean
 language sql stable security definer set search_path = '' as $$
   select case
-    when p_colecao in ('clientes', 'vendas', 'orcamentos', 'movimentos', 'pedidosProduto') then coalesce(p_dados ->> 'vendedorId', '') = public.meu_vendedor()
+    when p_colecao in ('clientes', 'vendas', 'orcamentos', 'movimentos', 'pedidosProduto', 'indicacoes') then coalesce(p_dados ->> 'vendedorId', '') = public.meu_vendedor()
     when p_colecao = 'vendedores' then p_id = public.meu_vendedor()
     when p_colecao in ('freteiros', 'config') then true
     else false
@@ -118,7 +118,7 @@ begin
     if v_papel = 'vendedor' then
       -- Vendedor só grava os próprios clientes, vendas e orçamentos; não mexe no caixa.
       -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
-      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico', 'pedidosProduto') then continue; end if;
+      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico', 'pedidosProduto', 'indicacoes') then continue; end if;
       select * into atual from public.registros where colecao = r.colecao and id = r.id;
       v_existe := found;
       -- Histórico: o vendedor só acrescenta (não muda nem apaga), sempre com o nome dele.
@@ -129,8 +129,8 @@ begin
       end if;
       if v_existe and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
       if coalesce(r.excluido, false) then
-        -- Só o dono exclui vendas, clientes e produtos para aprovação.
-        if r.colecao in ('vendas', 'clientes', 'pedidosProduto') then continue; end if;
+        -- Só o dono exclui vendas, clientes, produtos e indicações para aprovação.
+        if r.colecao in ('vendas', 'clientes', 'pedidosProduto', 'indicacoes') then continue; end if;
       elsif coalesce(r.dados ->> 'vendedorId', '') <> v_vend then
         continue;
       end if;
@@ -150,11 +150,12 @@ begin
           'devolucoes', case when v_existe then coalesce(atual.dados -> 'devolucoes', '[]'::jsonb) else '[]'::jsonb end,
           'pagamentos', case when v_existe then coalesce(atual.dados -> 'pagamentos', '[]'::jsonb) else '[]'::jsonb end);
       end if;
-      -- Só o dono aprova a entrada do produto cadastrado pelo vendedor.
-      if r.colecao = 'pedidosProduto' and v_dados is not null then
-        v_dados := (v_dados - 'status' - 'itemId' - 'respondidoEm') || jsonb_build_object(
+      -- Só o dono aprova a entrada do produto e o vendedor indicado.
+      if r.colecao in ('pedidosProduto', 'indicacoes') and v_dados is not null then
+        v_dados := (v_dados - 'status' - 'itemId' - 'vendedorCriadoId' - 'respondidoEm') || jsonb_build_object(
           'status', case when v_existe then coalesce(atual.dados -> 'status', '"Pendente"'::jsonb) else '"Pendente"'::jsonb end,
           'itemId', case when v_existe then coalesce(atual.dados -> 'itemId', 'null'::jsonb) else 'null'::jsonb end,
+          'vendedorCriadoId', case when v_existe then coalesce(atual.dados -> 'vendedorCriadoId', 'null'::jsonb) else 'null'::jsonb end,
           'respondidoEm', case when v_existe then coalesce(atual.dados -> 'respondidoEm', 'null'::jsonb) else 'null'::jsonb end);
       end if;
       -- Só o dono aprova o preço alterado no orçamento.
@@ -288,3 +289,28 @@ end $$;
 
 revoke all on function public.definir_login(text, text) from public, anon;
 grant execute on function public.definir_login(text, text), public.email_de_login(text) to authenticated;
+
+-- =====================================================================
+-- Comissão de indicação: o vendedor vê os vendedores que indicou e as vendas
+-- deles, só com produtos, quantidades e o custo para vendedores (sem clientes).
+-- =====================================================================
+create or replace function public.vendas_dos_indicados()
+returns table (vendedor_id text, vendedor_nome text, indicado_por text, venda jsonb)
+language sql stable security definer set search_path = '' as $$
+  select iv.id, iv.dados ->> 'nome', iv.dados ->> 'indicadoPor',
+         case when v.id is null then null else jsonb_build_object(
+           'id', v.id, 'vendedorId', v.dados -> 'vendedorId', 'data', v.dados -> 'data',
+           'itens', (select coalesce(jsonb_agg(jsonb_build_object('itemId', l -> 'itemId', 'qtd', l -> 'qtd', 'subtotal', l -> 'subtotal', 'custoVendedor', l -> 'custoVendedor') order by i), '[]'::jsonb)
+                     -- Mantém a ordem dos produtos: as devoluções apontam para a posição (linha).
+                     from jsonb_array_elements(case when jsonb_typeof(v.dados -> 'itens') = 'array' then v.dados -> 'itens' else '[]'::jsonb end) with ordinality as x(l, i)),
+           'devolucoes', (select coalesce(jsonb_agg(jsonb_build_object('itens', d -> 'itens')), '[]'::jsonb)
+                     from jsonb_array_elements(case when jsonb_typeof(v.dados -> 'devolucoes') = 'array' then v.dados -> 'devolucoes' else '[]'::jsonb end) d)
+         ) end
+  from public.registros iv
+  left join public.registros v on v.colecao = 'vendas' and not v.excluido and v.dados ->> 'vendedorId' = iv.id
+  where iv.colecao = 'vendedores' and not iv.excluido
+    and public.meu_vendedor() is not null
+    and iv.dados ->> 'indicadoPor' = public.meu_vendedor()
+$$;
+revoke all on function public.vendas_dos_indicados() from public, anon;
+grant execute on function public.vendas_dos_indicados() to authenticated;

@@ -40,7 +40,7 @@ export function PagarComissaoModal() {
   const { editando, vendedoresTodos, vendas, estoque, pagarComissao, fecharModal } = useApp();
   const vd = vendedoresTodos.find((v) => v.id === editando?.vendedorId);
   const mes = editando?.mes;
-  const c = vd ? comissaoDoMes(vd, vendas, estoque, mes) : null;
+  const c = vd ? comissaoDoMes(vd, vendas, estoque, mes, vendedoresTodos) : null;
   const [valor, setValor] = useState(c ? c.falta : 0);
   const [caixaKey, setCaixaKey] = useState("dolar");
   if (!vd) return null;
@@ -227,7 +227,7 @@ export function RelatorioPage() {
       });
     }
     const vend = vendedores.map((vd) => {
-      const c = comissaoDoMes(vd, vendas, estoque, mes);
+      const c = comissaoDoMes(vd, vendas, estoque, mes, vendedores);
       const vendido = c.vendas.reduce((s, v) => s + v.itens.reduce((a, l) => a + n(l.subtotal), 0) - valorDevolvido(v), 0);
       const lucroReal = c.vendas.reduce((s, v) => s + v.itens.reduce((a, l, i) => a + n(l.subtotal) - custoReal(l) * n(l.qtd), 0), 0)
         - c.vendas.reduce((s, v) => s + (v.devolucoes || []).reduce((a, d) => a + (d.itens || []).reduce((b, x) => b + n(x.valor) - custoReal(v.itens[x.linha] || {}) * n(x.qtd), 0), 0), 0);

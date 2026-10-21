@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import * as db from "./lib/db.js";
 import { Field, inputCls } from "./ui.jsx";
 import {
   Plus, Pencil, Trash2, Check, Copy, DollarSign, Clock, Receipt, Package, Users, TrendingUp, AlertTriangle, MessageCircle,
@@ -1024,7 +1025,15 @@ export function CambioForm({ onSave, initial }) {
 const nomeMes = (ano, mes) => new Date(ano, mes, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
 export function VendedoresPage() {
-  const { vendedores, vendas, estoque, abrirModal, ehVendedor } = useApp();
+  const { vendedores, vendedoresTodos, vendas, estoque, abrirModal, ehVendedor } = useApp();
+  // O vendedor não recebe as vendas dos outros: as dos vendedores que ele indicou vêm do servidor.
+  const [doServidor, setDoServidor] = useState(null);
+  useEffect(() => {
+    if (!ehVendedor) return;
+    db.vendasDosIndicados().then(setDoServidor).catch(() => setDoServidor(null));
+  }, [ehVendedor]);
+  const vendasComissao = ehVendedor ? [...vendas, ...(doServidor?.vendas || [])] : vendas;
+  const vendedoresComissao = ehVendedor ? [...vendedores, ...(doServidor?.indicados || [])] : vendedoresTodos;
   const hoje = new Date();
   const [ref, setRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() });
   const prefixo = `${ref.ano}-${String(ref.mes + 1).padStart(2, "0")}`;
@@ -1044,9 +1053,9 @@ export function VendedoresPage() {
       const total = vs.reduce((s, v) => s + prod(v), 0);
       const recebido = vs.filter((v) => v.status === "Pago").reduce((s, v) => s + prod(v), 0);
       // A comissão é sobre o lucro: preço de venda menos o custo para vendedores.
-      const c = comissaoDoMes(vd, vendas, estoque, prefixo);
+      const c = comissaoDoMes(vd, vendasComissao, estoque, prefixo, vendedoresComissao);
       const meta = Number(vd.meta || 0);
-      return { vd, qtd: vs.length, total, recebido, lucro: c.lucro, comissao: c.valor, pago: c.pago, falta: c.falta, meta, pct: meta > 0 ? (total / meta) * 100 : null };
+      return { vd, c, qtd: vs.length, total, recebido, lucro: c.lucro, comissao: c.valor, pago: c.pago, falta: c.falta, meta, pct: meta > 0 ? (total / meta) * 100 : null };
     })
     .sort((a, b) => b.total - a.total);
   const semVendedor = doMes.filter((v) => !v.vendedorId).reduce((s, v) => s + Number(v.valorProdutos ?? v.valor), 0);
@@ -1063,7 +1072,10 @@ export function VendedoresPage() {
           <button onClick={() => mudarMes(1)} className={btnIcone} aria-label="Próximo mês"><ChevronRight size={18} /></button>
         </div>
         {!ehVendedor && <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>}
+        {ehVendedor && <button onClick={() => abrirModal("indicacao")} className={btnPrimario}><Plus size={14} /> Indicar vendedor</button>}
       </div>
+
+      <IndicacoesPainel />
 
       <div className={`grid grid-cols-1 ${ehVendedor ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-4 mb-6`}>
         <StatCard label={ehVendedor ? "Suas vendas" : "Vendido pelos vendedores"} value={fmtUSD(totalVendido)} sub={semVendedor > 0 ? `${fmtUSD(semVendedor)} em vendas sem vendedor` : "No mês selecionado"} icon={DollarSign} />
@@ -1080,7 +1092,7 @@ export function VendedoresPage() {
         </Cartao>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {linhas.map(({ vd, qtd, total, recebido, lucro, comissao, pago, falta, meta, pct }) => {
+          {linhas.map(({ vd, c, qtd, total, recebido, lucro, comissao, pago, falta, meta, pct }) => {
             const bateu = pct != null && pct >= 100;
             return (
               <div key={vd.id} className={`bg-white border rounded-xl p-5 shadow-sm ${vd.ativo === false ? "border-slate-200 opacity-60" : "border-slate-200"}`}>
@@ -1088,6 +1100,9 @@ export function VendedoresPage() {
                   <div>
                     <div className="text-sm font-semibold text-slate-900">{vd.nome}</div>
                     <div className="text-xs text-slate-400">Comissão de {fmtNum(vd.comissao, 1)}%{vd.ativo === false ? " · inativo" : ""}</div>
+                    {!ehVendedor && vd.indicadoPor && (
+                      <div className="text-xs text-slate-400">Indicado por {vendedoresTodos.find((x) => x.id === vd.indicadoPor)?.nome || "vendedor excluído"}</div>
+                    )}
                   </div>
                   {!ehVendedor && <button onClick={() => abrirModal("vendedor", vd)} className={btnIcone} title="Editar"><Pencil size={15} /></button>}
                 </div>
@@ -1122,6 +1137,14 @@ export function VendedoresPage() {
                   <span className="text-xs font-medium text-violet-700">{ehVendedor ? "Sua comissão do mês" : `Comissão do mês (${fmtNum(vd.comissao, 1)}% do lucro)`}</span>
                   <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
                 </div>
+                {c.indicados.length > 0 && (
+                  <div className="mt-2 px-1 text-xs text-slate-500 space-y-0.5">
+                    <div className="flex justify-between"><span>Vendas {ehVendedor ? "suas" : "dele"} ({fmtNum(vd.comissao, 1)}%)</span><span>{fmtUSD(c.propria)}</span></div>
+                    {c.indicados.map((x) => (
+                      <div key={x.vendedor.id} className="flex justify-between"><span>Indicação: {x.vendedor.nome} ({fmtNum(c.pctIndicacao, 1)}%)</span><span>{fmtUSD(x.valor)}</span></div>
+                    ))}
+                  </div>
+                )}
                 {comissao > 0 && (
                   <div className="flex items-center justify-between gap-2 mt-2 px-1 text-xs">
                     <span className={falta > 0 ? "text-slate-500" : "text-emerald-700 font-medium"}>
@@ -1179,6 +1202,45 @@ function PedidosProdutoPainel() {
               <div className="flex gap-2">
                 <button onClick={() => { if (window.confirm(`Recusar "${p.nome}"?`)) responderPedidoProduto(p.id, "Recusado"); }} className="text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 rounded-md px-2.5 py-1">Recusar</button>
                 <button onClick={() => aprovar(p)} className={btnContorno}>Aprovar entrada</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Cartao>
+  );
+}
+
+// Vendedores novos indicados por um vendedor: o dono aprova (cadastra e cria o login) ou
+// recusa; o vendedor acompanha a resposta.
+function IndicacoesPainel() {
+  const { indicacoes, indicacoesParaAprovar, responderIndicacao, abrirModal, ehVendedor } = useApp();
+  const lista = ehVendedor
+    ? indicacoes.filter((p) => p.status === "Pendente" || (p.respondidoEm || "") >= diasAtras(7))
+    : indicacoesParaAprovar;
+  if (!lista.length) return null;
+  const cor = { Pendente: "text-amber-700", Aprovado: "text-emerald-700", Recusado: "text-red-600" };
+  return (
+    <Cartao
+      className="mb-6 border-amber-200"
+      title={ehVendedor ? "Suas indicações" : `Vendedores indicados aguardando aprovação (${lista.length})`}
+      sub={ehVendedor ? "Quando o dono aprovar, você ganha comissão sobre o lucro das vendas de quem indicou." : "Ao aprovar, você cadastra o vendedor e cria o login dele."}
+    >
+      <div className="divide-y divide-slate-100">
+        {lista.map((p) => (
+          <div key={p.id} className="py-2.5 flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[12rem]">
+              <div className="text-sm font-medium text-slate-900">{p.nome}</div>
+              <div className="text-xs text-slate-500">
+                {p.contato}{!ehVendedor && ` · indicado por ${p.vendedorNome} · ${fmtDate(p.data)}`}{p.obs && ` · ${p.obs}`}
+              </div>
+            </div>
+            {ehVendedor ? (
+              <span className={`text-xs font-medium ${cor[p.status] || ""}`}>{p.status === "Pendente" ? "Aguardando o dono" : p.status}</span>
+            ) : (
+              <div className="flex gap-2">
+                <button onClick={() => { if (window.confirm(`Recusar a indicação de "${p.nome}"?`)) responderIndicacao(p.id, "Recusado"); }} className="text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 rounded-md px-2.5 py-1">Recusar</button>
+                <button onClick={() => abrirModal("vendedor", { nome: p.nome, contato: p.contato, indicadoPor: p.vendedorId, indicacao: p })} className={btnContorno}>Aprovar</button>
               </div>
             )}
           </div>

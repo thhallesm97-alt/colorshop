@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check, ImagePlus, Share2, Image as ImageIcon } from "lucide-react";
-import { useApp, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, fmtConta } from "./contexto.js";
+import { useApp, COMISSAO_PADRAO, COMISSAO_INDICACAO_PADRAO, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, fmtConta } from "./contexto.js";
 import { fmtUSD, fmtBRL, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
@@ -1131,11 +1131,15 @@ export function DadosModal() {
 }
 
 export function VendedorModal() {
-  const { editando, salvarVendedor, excluirVendedor, fecharModal, registrar } = useApp();
-  const isEdit = !!editando;
+  const { editando, salvarVendedor, excluirVendedor, fecharModal, registrar, vendedoresTodos, responderIndicacao } = useApp();
+  // Aberto pelo botão "Aprovar" de um vendedor indicado por outro vendedor.
+  const indicacao = editando?.indicacao || null;
+  const isEdit = !!editando?.id;
   const [nome, setNome] = useState(editando?.nome || "");
   const [contato, setContato] = useState(editando?.contato || "");
-  const [comissao, setComissao] = useState(editando?.comissao ?? 5);
+  const [comissao, setComissao] = useState(editando?.comissao ?? COMISSAO_PADRAO);
+  const [comissaoIndicacao, setComissaoIndicacao] = useState(editando?.comissaoIndicacao ?? COMISSAO_INDICACAO_PADRAO);
+  const [indicadoPor, setIndicadoPor] = useState(editando?.indicadoPor || "");
   const [meta, setMeta] = useState(editando?.meta ?? 0);
   const [ativo, setAtivo] = useState(editando?.ativo !== false);
   const [email, setEmail] = useState(editando?.email || "");
@@ -1158,9 +1162,25 @@ export function VendedorModal() {
     }
   }
   const nomeVendedor = nome.trim() || "O vendedor";
-  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && meta >= 0 && emailOk;
+  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && comissaoIndicacao >= 0 && comissaoIndicacao <= 100 && meta >= 0 && emailOk;
+  // Só 1 nível: quem indica não pode ser ele mesmo.
+  const podemIndicar = vendedoresTodos.filter((v) => v.id !== editando?.id);
+  function salvar() {
+    const id = salvarVendedor(
+      { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, ativo, email: email.trim().toLowerCase() },
+      isEdit ? editando : null
+    );
+    if (indicacao) responderIndicacao(indicacao.id, "Aprovado", id);
+    fecharModal();
+  }
   return (
-    <Modal title={isEdit ? "Editar vendedor" : "Novo vendedor"} onClose={fecharModal}>
+    <Modal title={indicacao ? "Aprovar vendedor indicado" : isEdit ? "Editar vendedor" : "Novo vendedor"} onClose={fecharModal}>
+      {indicacao && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Indicado por <b>{indicacao.vendedorNome}</b> em {fmtDate(indicacao.data)}. Crie o login e salve para aprovar.
+          {indicacao.obs && <div className="mt-1 text-amber-700">Obs.: {indicacao.obs}</div>}
+        </div>
+      )}
       <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
       <Field label="WhatsApp / telefone"><input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" /></Field>
       <div className="grid grid-cols-2 gap-3">
@@ -1169,6 +1189,17 @@ export function VendedorModal() {
         </Field>
         <Field label="Meta do mês (US$)" hint="Deixe 0 para não ter meta.">
           <input type="number" step="1" min="0" className={inputCls} value={meta} onChange={(e) => setMeta(n(e.target.value))} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Indicado por" hint="Quem trouxe este vendedor ganha comissão sobre o lucro das vendas dele.">
+          <select className={inputCls} value={indicadoPor} onChange={(e) => setIndicadoPor(e.target.value)}>
+            <option value="">Ninguém</option>
+            {podemIndicar.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </select>
+        </Field>
+        <Field label="Comissão sobre indicados (%)" hint="O que este vendedor ganha sobre o lucro dos vendedores que ele indicar.">
+          <input type="number" step="0.1" min="0" max="100" className={inputCls} value={comissaoIndicacao} onChange={(e) => setComissaoIndicacao(n(e.target.value))} />
         </Field>
       </div>
       <div className="border border-slate-200 rounded-xl p-4 mb-4">
@@ -1197,12 +1228,8 @@ export function VendedorModal() {
           Excluir vendedor
         </button>
       )}
-      <button
-        disabled={!valido}
-        onClick={() => { salvarVendedor({ nome: nome.trim(), contato: contato.trim(), comissao, meta, ativo, email: email.trim().toLowerCase() }, editando); fecharModal(); }}
-        className={btnPrimario + " w-full"}
-      >
-        Salvar
+      <button disabled={!valido} onClick={salvar} className={btnPrimario + " w-full"}>
+        {indicacao ? "Aprovar vendedor" : "Salvar"}
       </button>
     </Modal>
   );
@@ -1516,6 +1543,29 @@ export function EnviarProdutoModal() {
         {linkFoto && item.foto ? " A foto também está na nuvem, se quiser mandar o link: " : ""}
         {linkFoto && item.foto && <a href={linkFoto} target="_blank" rel="noreferrer" className="text-emerald-700 underline break-all">{linkFoto}</a>}
       </div>
+    </Modal>
+  );
+}
+
+// O vendedor indica um vendedor novo; o dono aprova, cria o login e ele passa a vender.
+export function IndicacaoModal() {
+  const { indicarVendedor, fecharModal } = useApp();
+  const [nome, setNome] = useState("");
+  const [contato, setContato] = useState("");
+  const [obs, setObs] = useState("");
+  const valido = nome.trim() && contato.trim();
+  function save() {
+    if (!valido) return;
+    indicarVendedor({ nome: nome.trim(), contato: contato.trim(), obs: obs.trim() });
+    fecharModal();
+  }
+  return (
+    <Modal title="Indicar vendedor" onClose={fecharModal}>
+      <p className="text-sm text-slate-500 mb-4">O dono recebe a indicação e cria o acesso. Você ganha comissão sobre o lucro das vendas de quem indicar.</p>
+      <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
+      <Field label="WhatsApp / telefone"><input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" /></Field>
+      <Field label="Observação para o dono"><input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} /></Field>
+      <button onClick={save} disabled={!valido} className={btnPrimario + " w-full"}>Enviar indicação</button>
     </Modal>
   );
 }

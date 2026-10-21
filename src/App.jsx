@@ -18,7 +18,7 @@ import {
 } from "./paginas.jsx";
 import { OrcamentosPage, FretePage, OrcamentoModal, OrcamentoDetalheModal, FreteiroModal } from "./frete.jsx";
 import {
-  VendaModal, CompraModal, MovimentoModal, ItemModal, PedidoProdutoModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
+  VendaModal, CompraModal, MovimentoModal, ItemModal, PedidoProdutoModal, IndicacaoModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
   ReceberVendaModal, DadosModal, VendedorModal, ListaPrecosModal, AgendarContatoModal, EnviarProdutoModal,
 } from "./modais.jsx";
 
@@ -101,6 +101,7 @@ export default function Shopping25App() {
   const [historicoTodo, setHistorico] = useState([]);
   const [fechamentosTodos, setFechamentos] = useState([]);
   const [pedidosProdutoTodos, setPedidosProduto] = useState([]);
+  const [indicacoesTodas, setIndicacoes] = useState([]);
 
   const [modal, setModal] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -141,6 +142,7 @@ export default function Shopping25App() {
     setHistorico(db.listar("historico"));
     setFechamentos(db.listar("fechamentos"));
     setPedidosProduto(db.listar("pedidosProduto"));
+    setIndicacoes(db.listar("indicacoes"));
     setCambio(lerCambio());
   }, []);
 
@@ -169,7 +171,7 @@ export default function Shopping25App() {
     const setters = {
       estoque: setEstoqueBase, vendas: setVendas, compras: setCompras, clientes: setClientes,
       fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas, vendedores: setVendedores, orcamentos: setOrcamentos, freteiros: setFreteiros,
-      historico: setHistorico, fechamentos: setFechamentos, pedidosProduto: setPedidosProduto,
+      historico: setHistorico, fechamentos: setFechamentos, pedidosProduto: setPedidosProduto, indicacoes: setIndicacoes,
     };
     db.aoApagarLocal(recarregarTudo);
     db.aoReceberDaNuvem((cols) => {
@@ -204,6 +206,7 @@ export default function Shopping25App() {
   useEffect(() => { if (loaded) db.gravar("historico", historicoTodo); }, [historicoTodo, loaded]);
   useEffect(() => { if (loaded) db.gravar("fechamentos", fechamentosTodos); }, [fechamentosTodos, loaded]);
   useEffect(() => { if (loaded) db.gravar("pedidosProduto", pedidosProdutoTodos); }, [pedidosProdutoTodos, loaded]);
+  useEffect(() => { if (loaded) db.gravar("indicacoes", indicacoesTodas); }, [indicacoesTodas, loaded]);
   useEffect(() => { if (loaded) db.gravar("config", [cambio]); }, [cambio, loaded]);
 
   // ---- botão "Instalar no computador" ----
@@ -272,6 +275,9 @@ export default function Shopping25App() {
   // Produtos que o vendedor cadastrou e esperam o dono aprovar a entrada no estoque.
   const pedidosProduto = useMemo(() => doVendedor(pedidosProdutoTodos), [doVendedor, pedidosProdutoTodos]);
   const pedidosParaAprovar = useMemo(() => (ehVendedor ? [] : pedidosProdutoTodos.filter((p) => p.status === "Pendente")), [ehVendedor, pedidosProdutoTodos]);
+  // Vendedores novos indicados por um vendedor, esperando o dono aprovar o cadastro.
+  const indicacoes = useMemo(() => doVendedor(indicacoesTodas), [doVendedor, indicacoesTodas]);
+  const indicacoesParaAprovar = useMemo(() => (ehVendedor ? [] : indicacoesTodas.filter((p) => p.status === "Pendente")), [ehVendedor, indicacoesTodas]);
   const estoque = useMemo(
     () => (ehVendedor ? estoqueReal.map((i) => { const c = custoComissao(i); const { custo, ...resto } = i; return { ...resto, custo: c, custoVendedor: c }; }) : estoqueReal),
     [ehVendedor, estoqueReal]
@@ -922,8 +928,31 @@ export default function Shopping25App() {
     if (original && "comissao" in dados && Number(dados.comissao || 0) !== Number(original.comissao || 0))
       registrar("Vendedor", `${original.nome}: comissão ${Number(original.comissao || 0)}% → ${Number(dados.comissao || 0)}%`);
     if (!original) registrar("Vendedor", `Vendedor novo: ${dados.nome}`);
-    if (original) setVendedores((d) => d.map((p) => (p.id === original.id ? { ...p, ...dados } : p)));
-    else setVendedores((d) => [...d, { id: uid(), ativo: true, ...dados }]);
+    if (original?.id) {
+      setVendedores((d) => d.map((p) => (p.id === original.id ? { ...p, ...dados } : p)));
+      return original.id;
+    }
+    const id = uid();
+    setVendedores((d) => [...d, { id, ativo: true, ...dados }]);
+    return id;
+  }
+
+  // O vendedor indica um vendedor novo; o cadastro só vale quando o dono aprova.
+  function indicarVendedor(dados) {
+    if (!ehVendedor) return;
+    const eu = vendedoresTodos.find((v) => v.id === meuVendedorId);
+    const p = { id: uid(), ...dados, vendedorId: meuVendedorId, vendedorNome: eu?.nome || "Vendedor", status: "Pendente", data: todayISO(), ts: Date.now() };
+    setIndicacoes((ps) => [p, ...ps]);
+    registrar("Vendedor", `${p.vendedorNome} indicou ${dados.nome} como vendedor novo`);
+  }
+
+  // O dono aprova (o vendedor novo já foi cadastrado, vendedorCriadoId) ou recusa.
+  function responderIndicacao(id, status, vendedorCriadoId = null) {
+    if (ehVendedor) return;
+    const p = indicacoesTodas.find((x) => x.id === id);
+    if (!p || p.status !== "Pendente") return;
+    setIndicacoes((ps) => ps.map((x) => (x.id === id ? { ...x, status, vendedorCriadoId, respondidoEm: todayISO() } : x)));
+    registrar("Vendedor", status === "Recusado" ? `Indicação de ${p.nome} por ${p.vendedorNome} recusada` : `Indicação de ${p.nome} por ${p.vendedorNome} aprovada`);
   }
 
   function excluirVendedor(v) {
@@ -936,7 +965,7 @@ export default function Shopping25App() {
   const dadosBackup = () => ({
     app: "shopping25", versao: 2, exportadoEm: new Date().toISOString(),
     estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, orcamentos, freteiros, movimentos, contas, cambio,
-    historico, fechamentos, pedidosProduto: pedidosProdutoTodos,
+    historico, fechamentos, pedidosProduto: pedidosProdutoTodos, indicacoes: indicacoesTodas,
   });
 
   // Backup automático do dia (só no computador do dono, que tem todos os dados).
@@ -974,7 +1003,7 @@ export default function Shopping25App() {
     db.gravar("estoque", estoqueBase); db.gravar("vendas", vendas); db.gravar("compras", compras);
     db.gravar("clientes", clientes); db.gravar("fornecedores", fornecedores); db.gravar("movimentos", movimentos);
     db.gravar("contas", contas); db.gravar("vendedores", vendedores); db.gravar("orcamentos", orcamentos); db.gravar("freteiros", freteiros); db.gravar("config", [cambio]);
-    db.gravar("historico", historicoTodo); db.gravar("fechamentos", fechamentosTodos); db.gravar("pedidosProduto", pedidosProdutoTodos);
+    db.gravar("historico", historicoTodo); db.gravar("fechamentos", fechamentosTodos); db.gravar("pedidosProduto", pedidosProdutoTodos); db.gravar("indicacoes", indicacoesTodas);
     const n = await db.importar(normalizar(bruto));
     recarregarTudo();
     return n;
@@ -1026,6 +1055,7 @@ export default function Shopping25App() {
     entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, orcamentosDoVendedor, respostasDoDono, marcarOrcamentoVisto, baixarBackup, baixarBackupDoDia, restaurarBackup, vendasTodas,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
     pedidosProduto, pedidosParaAprovar, pedirProduto, responderPedidoProduto,
+    indicacoes, indicacoesParaAprovar, indicarVendedor, responderIndicacao,
   };
 
   if (erroCarregar) {
@@ -1093,6 +1123,7 @@ export default function Shopping25App() {
     estoque: ehVendedor ? 0 : estoqueBaixo.length + pedidosParaAprovar.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
     frete: entregasPendentes.length + cotacoesAguardando.length,
     orcamentos: ehVendedor ? respostasDoDono.length : orcamentosDoVendedor.length,
+    vendedores: indicacoesParaAprovar.length,
   };
 
   const sidebar = (
@@ -1234,6 +1265,7 @@ export default function Shopping25App() {
         {modal === "movimento" && <MovimentoModal />}
         {modal === "item" && <ItemModal />}
         {modal === "pedidoProduto" && ehVendedor && <PedidoProdutoModal />}
+        {modal === "indicacao" && ehVendedor && <IndicacaoModal />}
         {modal === "cliente" && <PessoaModal tipo="cliente" />}
         {modal === "fornecedor" && <PessoaModal tipo="fornecedor" />}
         {modal === "cambio" && <CambioModal />}

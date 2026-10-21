@@ -122,6 +122,7 @@ export function normalizar(bruto) {
     historico: (bruto.historico || []).map((h) => ({ ...h, id: String(h.id) })),
     fechamentos: (bruto.fechamentos || []).map((f) => ({ ...f, id: String(f.id) })),
     pedidosProduto: (bruto.pedidosProduto || []).map((p) => ({ ...p, id: String(p.id) })),
+    indicacoes: (bruto.indicacoes || []).map((p) => ({ ...p, id: String(p.id) })),
   };
   if (bruto.cambio && typeof bruto.cambio === "object") {
     out.config = [{ ...bruto.cambio, id: "cambio" }];
