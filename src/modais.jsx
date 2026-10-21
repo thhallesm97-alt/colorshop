@@ -1142,6 +1142,8 @@ export function VendedorModal() {
   const [indicadoPor, setIndicadoPor] = useState(editando?.indicadoPor || "");
   const [meta, setMeta] = useState(editando?.meta ?? 0);
   const [ativo, setAtivo] = useState(editando?.ativo !== false);
+  const [podeCadastrarProduto, setPodeCadastrarProduto] = useState(!!editando?.podeCadastrarProduto);
+  const [podeIndicarVendedor, setPodeIndicarVendedor] = useState(!!editando?.podeIndicarVendedor);
   const [email, setEmail] = useState(editando?.email || "");
   const [senha, setSenha] = useState("");
   const [estadoSenha, setEstadoSenha] = useState(null); // { ok, texto }
@@ -1167,7 +1169,7 @@ export function VendedorModal() {
   const podemIndicar = vendedoresTodos.filter((v) => v.id !== editando?.id);
   function salvar() {
     const id = salvarVendedor(
-      { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, ativo, email: email.trim().toLowerCase() },
+      { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, ativo, podeCadastrarProduto, podeIndicarVendedor, email: email.trim().toLowerCase() },
       isEdit ? editando : null
     );
     if (indicacao) responderIndicacao(indicacao.id, "Aprovado", id);
@@ -1223,6 +1225,18 @@ export function VendedorModal() {
         <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
         Ativo (aparece na hora de registrar a venda e pode entrar no sistema)
       </label>
+      <div className="border border-slate-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-semibold text-slate-900 mb-1">O que este vendedor pode fazer</div>
+        <p className="text-xs text-slate-500 mb-3">Vender, fazer orçamentos e cadastrar os próprios clientes ele sempre pode.</p>
+        <label className="flex items-start gap-2 text-sm text-slate-700 mb-2">
+          <input type="checkbox" checked={podeCadastrarProduto} onChange={(e) => setPodeCadastrarProduto(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
+          <span>Cadastrar produtos <span className="text-xs text-slate-400">(entram no estoque depois que o dono aprova)</span></span>
+        </label>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={podeIndicarVendedor} onChange={(e) => setPodeIndicarVendedor(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
+          <span>Indicar vendedores abaixo dele <span className="text-xs text-slate-400">(o dono aprova; ele ganha comissão sobre o lucro deles)</span></span>
+        </label>
+      </div>
       {isEdit && (
         <button onClick={() => excluirVendedor(editando) && fecharModal()} className="w-full mb-3 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg py-2 text-sm font-medium">
           Excluir vendedor

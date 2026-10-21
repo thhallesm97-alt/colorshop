@@ -391,7 +391,7 @@ export function MiniFoto({ id, tamanho = "w-10 h-10" }) {
 const selectCls = "text-sm border border-slate-200 bg-white rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-600";
 
 export function EstoquePage() {
-  const { estoque, unidadesEstoque, valorEstoque, estoqueBaixo, abrirModal, excluirItem, busca, setBusca, ehVendedor } = useApp();
+  const { estoque, unidadesEstoque, valorEstoque, estoqueBaixo, abrirModal, excluirItem, busca, setBusca, ehVendedor, pode } = useApp();
   const [mostrar, setMostrar] = useState("todos");
   const [tipo, setTipo] = useState("");
   const [marca, setMarca] = useState("");
@@ -429,7 +429,7 @@ export function EstoquePage() {
           <button onClick={() => abrirModal("listaPrecos")} className={btnSecundario}>
             <ListChecks size={14} /> Lista de preços
           </button>
-          {ehVendedor && (
+          {ehVendedor && pode.cadastrarProduto && (
             <button onClick={() => abrirModal("pedidoProduto")} className={btnPrimario}>
               <Plus size={14} /> Adicionar produto
             </button>
@@ -1025,7 +1025,7 @@ export function CambioForm({ onSave, initial }) {
 const nomeMes = (ano, mes) => new Date(ano, mes, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
 export function VendedoresPage() {
-  const { vendedores, vendedoresTodos, vendas, estoque, abrirModal, ehVendedor } = useApp();
+  const { vendedores, vendedoresTodos, vendas, estoque, abrirModal, ehVendedor, pode } = useApp();
   // O vendedor não recebe as vendas dos outros: as dos vendedores que ele indicou vêm do servidor.
   const [doServidor, setDoServidor] = useState(null);
   useEffect(() => {
@@ -1072,7 +1072,7 @@ export function VendedoresPage() {
           <button onClick={() => mudarMes(1)} className={btnIcone} aria-label="Próximo mês"><ChevronRight size={18} /></button>
         </div>
         {!ehVendedor && <button onClick={() => abrirModal("vendedor")} className={btnPrimario}><Plus size={14} /> Novo vendedor</button>}
-        {ehVendedor && <button onClick={() => abrirModal("indicacao")} className={btnPrimario}><Plus size={14} /> Indicar vendedor</button>}
+        {ehVendedor && pode.indicarVendedor && <button onClick={() => abrirModal("indicacao")} className={btnPrimario}><Plus size={14} /> Indicar vendedor</button>}
       </div>
 
       <IndicacoesPainel />

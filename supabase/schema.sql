@@ -119,6 +119,9 @@ begin
       -- Vendedor só grava os próprios clientes, vendas e orçamentos; não mexe no caixa.
       -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
       if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico', 'pedidosProduto', 'indicacoes') then continue; end if;
+      -- Cadastrar produto e indicar vendedor só com a permissão que o dono deu no cadastro dele.
+      if r.colecao = 'pedidosProduto' and not coalesce((select (x.dados ->> 'podeCadastrarProduto')::boolean from public.registros x where x.colecao = 'vendedores' and x.id = v_vend), false) then continue; end if;
+      if r.colecao = 'indicacoes' and not coalesce((select (x.dados ->> 'podeIndicarVendedor')::boolean from public.registros x where x.colecao = 'vendedores' and x.id = v_vend), false) then continue; end if;
       select * into atual from public.registros where colecao = r.colecao and id = r.id;
       v_existe := found;
       -- Histórico: o vendedor só acrescenta (não muda nem apaga), sempre com o nome dele.

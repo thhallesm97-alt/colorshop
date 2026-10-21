@@ -275,6 +275,9 @@ export default function Shopping25App() {
   // Produtos que o vendedor cadastrou e esperam o dono aprovar a entrada no estoque.
   const pedidosProduto = useMemo(() => doVendedor(pedidosProdutoTodos), [doVendedor, pedidosProdutoTodos]);
   const pedidosParaAprovar = useMemo(() => (ehVendedor ? [] : pedidosProdutoTodos.filter((p) => p.status === "Pendente")), [ehVendedor, pedidosProdutoTodos]);
+  // O que o vendedor pode fazer além de vender (o dono escolhe no cadastro dele).
+  const eu = ehVendedor ? vendedoresTodos.find((v) => v.id === meuVendedorId) : null;
+  const pode = { cadastrarProduto: !ehVendedor || !!eu?.podeCadastrarProduto, indicarVendedor: !ehVendedor || !!eu?.podeIndicarVendedor };
   // Vendedores novos indicados por um vendedor, esperando o dono aprovar o cadastro.
   const indicacoes = useMemo(() => doVendedor(indicacoesTodas), [doVendedor, indicacoesTodas]);
   const indicacoesParaAprovar = useMemo(() => (ehVendedor ? [] : indicacoesTodas.filter((p) => p.status === "Pendente")), [ehVendedor, indicacoesTodas]);
@@ -808,7 +811,7 @@ export default function Shopping25App() {
 
   // O vendedor cadastra o produto; ele só entra no estoque quando o dono aprova.
   function pedirProduto(dados) {
-    if (!ehVendedor) return;
+    if (!ehVendedor || !pode.cadastrarProduto) return;
     const eu = vendedoresTodos.find((v) => v.id === meuVendedorId);
     const p = { id: uid(), ...dados, vendedorId: meuVendedorId, vendedorNome: eu?.nome || "Vendedor", status: "Pendente", data: todayISO(), ts: Date.now() };
     setPedidosProduto((ps) => [p, ...ps]);
@@ -939,7 +942,7 @@ export default function Shopping25App() {
 
   // O vendedor indica um vendedor novo; o cadastro só vale quando o dono aprova.
   function indicarVendedor(dados) {
-    if (!ehVendedor) return;
+    if (!ehVendedor || !pode.indicarVendedor) return;
     const eu = vendedoresTodos.find((v) => v.id === meuVendedorId);
     const p = { id: uid(), ...dados, vendedorId: meuVendedorId, vendedorNome: eu?.nome || "Vendedor", status: "Pendente", data: todayISO(), ts: Date.now() };
     setIndicacoes((ps) => [p, ...ps]);
@@ -1055,7 +1058,7 @@ export default function Shopping25App() {
     entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, orcamentosDoVendedor, respostasDoDono, marcarOrcamentoVisto, baixarBackup, baixarBackupDoDia, restaurarBackup, vendasTodas,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
     pedidosProduto, pedidosParaAprovar, pedirProduto, responderPedidoProduto,
-    indicacoes, indicacoesParaAprovar, indicarVendedor, responderIndicacao,
+    indicacoes, indicacoesParaAprovar, indicarVendedor, responderIndicacao, pode,
   };
 
   if (erroCarregar) {
@@ -1264,8 +1267,8 @@ export default function Shopping25App() {
         {modal === "devolucao" && <DevolucaoModal />}
         {modal === "movimento" && <MovimentoModal />}
         {modal === "item" && <ItemModal />}
-        {modal === "pedidoProduto" && ehVendedor && <PedidoProdutoModal />}
-        {modal === "indicacao" && ehVendedor && <IndicacaoModal />}
+        {modal === "pedidoProduto" && ehVendedor && pode.cadastrarProduto && <PedidoProdutoModal />}
+        {modal === "indicacao" && ehVendedor && pode.indicarVendedor && <IndicacaoModal />}
         {modal === "cliente" && <PessoaModal tipo="cliente" />}
         {modal === "fornecedor" && <PessoaModal tipo="fornecedor" />}
         {modal === "cambio" && <CambioModal />}
