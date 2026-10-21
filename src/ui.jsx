@@ -33,7 +33,7 @@ export function Modal({ title, onClose, children, wide }) {
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px] flex items-start justify-center z-50 p-4 sm:p-8 overflow-y-auto" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div data-janela className="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px] flex items-start justify-center z-50 p-4 sm:p-8 overflow-y-auto" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? "max-w-2xl" : "max-w-md"} my-auto`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <h3 className="text-base font-semibold text-slate-900">{title}</h3>

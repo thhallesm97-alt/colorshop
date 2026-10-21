@@ -1148,27 +1148,27 @@ export function VendedorModal() {
   const [email, setEmail] = useState(editando?.email || "");
   const [senha, setSenha] = useState("");
   const [estadoSenha, setEstadoSenha] = useState(null); // { ok, texto }
-  const [salvandoSenha, setSalvandoSenha] = useState(false);
   const loginTrim = email.trim().toLowerCase();
   const emailOk = !loginTrim || /^[a-z0-9._+-]+$/.test(loginTrim) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginTrim);
-  async function gravarSenha() {
-    setSalvandoSenha(true); setEstadoSenha(null);
-    try {
-      await db.definirLogin(loginTrim, senha);
-      registrar("Vendedor", `Login de ${nomeVendedor} criado ou senha trocada (usuário "${db.nomeDeLogin(loginTrim)}")`);
-      setSenha("");
-      setEstadoSenha({ ok: true, texto: `Pronto: ${nomeVendedor} entra com o usuário "${db.nomeDeLogin(loginTrim)}" e esta senha. Salve o vendedor para valer.` });
-    } catch (e) {
-      setEstadoSenha({ ok: false, texto: e.message });
-    } finally {
-      setSalvandoSenha(false);
-    }
-  }
   const nomeVendedor = nome.trim() || "O vendedor";
   const valido = nome.trim() && comissao >= 0 && comissao <= 100 && comissaoIndicacao >= 0 && comissaoIndicacao <= 100 && bonusMeta >= 0 && bonusMeta <= 1000 && meta >= 0 && emailOk;
   // Só 1 nível: quem indica não pode ser ele mesmo.
   const podemIndicar = vendedoresTodos.filter((v) => v.id !== editando?.id);
-  function salvar() {
+  const [salvando, setSalvando] = useState(false);
+  async function salvar() {
+    // Com usuário e senha preenchidos, cria o login (ou troca a senha) junto com o cadastro.
+    if (loginTrim && senha) {
+      if (senha.length < 6) return setEstadoSenha({ ok: false, texto: "A senha precisa ter pelo menos 6 caracteres." });
+      setSalvando(true); setEstadoSenha(null);
+      try {
+        await db.definirLogin(loginTrim, senha);
+        registrar("Vendedor", `Login de ${nomeVendedor} criado ou senha trocada (usuário "${db.nomeDeLogin(loginTrim)}")`);
+      } catch (e) {
+        setSalvando(false);
+        return setEstadoSenha({ ok: false, texto: e.message });
+      }
+      setSalvando(false);
+    }
     const id = salvarVendedor(
       { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, bonusMeta, ativo, podeCadastrarProduto, podeIndicarVendedor, email: email.trim().toLowerCase() },
       isEdit ? editando : null
@@ -1212,7 +1212,7 @@ export function VendedorModal() {
       </div>
       <div className="border border-slate-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-semibold text-slate-900 mb-1">Acesso ao sistema</div>
-        <p className="text-xs text-slate-500 mb-3">Com este usuário e senha o vendedor entra e vê só os clientes, vendas e orçamentos dele.</p>
+        <p className="text-xs text-slate-500 mb-3">Com este usuário e senha o vendedor entra e vê só os clientes, vendas e orçamentos dele. O login é criado ao clicar em Salvar.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Usuário">
             <input type="text" className={inputCls} value={email} onChange={(e) => { setEmail(e.target.value); setEstadoSenha(null); }} placeholder="Ex.: lucas" autoCapitalize="none" autoComplete="off" />
@@ -1222,10 +1222,7 @@ export function VendedorModal() {
             <input type="text" className={inputCls} value={senha} onChange={(e) => { setSenha(e.target.value); setEstadoSenha(null); }} autoComplete="new-password" placeholder={isEdit && editando?.email ? "Para trocar a senha" : ""} />
           </Field>
         </div>
-        <button type="button" onClick={gravarSenha} disabled={!loginTrim || !emailOk || senha.length < 6 || salvandoSenha} className={btnSecundario}>
-          {salvandoSenha ? <Loader2 size={14} className="animate-spin" /> : null} {isEdit && editando?.email && editando.email === loginTrim ? "Trocar a senha" : "Criar login"}
-        </button>
-        {estadoSenha && <div className={`text-xs mt-2 ${estadoSenha.ok ? "text-emerald-700" : "text-red-600"}`}>{estadoSenha.texto}</div>}
+        {estadoSenha && <div className={`text-xs mt-1 ${estadoSenha.ok ? "text-emerald-700" : "text-red-600"}`}>{estadoSenha.texto}</div>}
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
         <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
@@ -1248,8 +1245,8 @@ export function VendedorModal() {
           Excluir vendedor
         </button>
       )}
-      <button disabled={!valido} onClick={salvar} className={btnPrimario + " w-full"}>
-        {indicacao ? "Aprovar vendedor" : "Salvar"}
+      <button disabled={!valido || salvando} onClick={salvar} className={btnPrimario + " w-full"}>
+        {salvando ? <Loader2 size={14} className="animate-spin" /> : null} {indicacao ? "Aprovar vendedor" : "Salvar"}
       </button>
     </Modal>
   );
