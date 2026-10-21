@@ -18,7 +18,7 @@ import {
 } from "./paginas.jsx";
 import { OrcamentosPage, FretePage, OrcamentoModal, OrcamentoDetalheModal, FreteiroModal } from "./frete.jsx";
 import {
-  VendaModal, CompraModal, MovimentoModal, ItemModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
+  VendaModal, CompraModal, MovimentoModal, ItemModal, PedidoProdutoModal, PessoaModal, CambioModal, ContaModal, PagarContaModal,
   ReceberVendaModal, DadosModal, VendedorModal, ListaPrecosModal, AgendarContatoModal, EnviarProdutoModal,
 } from "./modais.jsx";
 
@@ -100,6 +100,7 @@ export default function Shopping25App() {
   const [freteiros, setFreteiros] = useState([]);
   const [historicoTodo, setHistorico] = useState([]);
   const [fechamentosTodos, setFechamentos] = useState([]);
+  const [pedidosProdutoTodos, setPedidosProduto] = useState([]);
 
   const [modal, setModal] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -139,6 +140,7 @@ export default function Shopping25App() {
     setFreteiros(db.listar("freteiros"));
     setHistorico(db.listar("historico"));
     setFechamentos(db.listar("fechamentos"));
+    setPedidosProduto(db.listar("pedidosProduto"));
     setCambio(lerCambio());
   }, []);
 
@@ -167,7 +169,7 @@ export default function Shopping25App() {
     const setters = {
       estoque: setEstoqueBase, vendas: setVendas, compras: setCompras, clientes: setClientes,
       fornecedores: setFornecedores, movimentos: setMovimentos, contas: setContas, vendedores: setVendedores, orcamentos: setOrcamentos, freteiros: setFreteiros,
-      historico: setHistorico, fechamentos: setFechamentos,
+      historico: setHistorico, fechamentos: setFechamentos, pedidosProduto: setPedidosProduto,
     };
     db.aoApagarLocal(recarregarTudo);
     db.aoReceberDaNuvem((cols) => {
@@ -201,6 +203,7 @@ export default function Shopping25App() {
   useEffect(() => { if (loaded) db.gravar("freteiros", freteiros); }, [freteiros, loaded]);
   useEffect(() => { if (loaded) db.gravar("historico", historicoTodo); }, [historicoTodo, loaded]);
   useEffect(() => { if (loaded) db.gravar("fechamentos", fechamentosTodos); }, [fechamentosTodos, loaded]);
+  useEffect(() => { if (loaded) db.gravar("pedidosProduto", pedidosProdutoTodos); }, [pedidosProdutoTodos, loaded]);
   useEffect(() => { if (loaded) db.gravar("config", [cambio]); }, [cambio, loaded]);
 
   // ---- botão "Instalar no computador" ----
@@ -266,6 +269,9 @@ export default function Shopping25App() {
   const fornecedores = ehVendedor ? nada : fornecedoresTodos;
   const historico = ehVendedor ? nada : historicoTodo;
   const fechamentos = ehVendedor ? nada : fechamentosTodos;
+  // Produtos que o vendedor cadastrou e esperam o dono aprovar a entrada no estoque.
+  const pedidosProduto = useMemo(() => doVendedor(pedidosProdutoTodos), [doVendedor, pedidosProdutoTodos]);
+  const pedidosParaAprovar = useMemo(() => (ehVendedor ? [] : pedidosProdutoTodos.filter((p) => p.status === "Pendente")), [ehVendedor, pedidosProdutoTodos]);
   const estoque = useMemo(
     () => (ehVendedor ? estoqueReal.map((i) => { const c = custoComissao(i); const { custo, ...resto } = i; return { ...resto, custo: c, custoVendedor: c }; }) : estoqueReal),
     [ehVendedor, estoqueReal]
@@ -794,6 +800,25 @@ export default function Shopping25App() {
     return true;
   }
 
+  // O vendedor cadastra o produto; ele só entra no estoque quando o dono aprova.
+  function pedirProduto(dados) {
+    if (!ehVendedor) return;
+    const eu = vendedoresTodos.find((v) => v.id === meuVendedorId);
+    const p = { id: uid(), ...dados, vendedorId: meuVendedorId, vendedorNome: eu?.nome || "Vendedor", status: "Pendente", data: todayISO(), ts: Date.now() };
+    setPedidosProduto((ps) => [p, ...ps]);
+    registrar("Produto", `${p.vendedorNome} cadastrou ${dados.nome} (${dados.qtd} un.) para o dono aprovar`);
+  }
+
+  // O dono aprova (o produto já foi salvo no estoque, itemId) ou recusa.
+  function responderPedidoProduto(id, status, itemId = null) {
+    if (ehVendedor) return;
+    const p = pedidosProdutoTodos.find((x) => x.id === id);
+    if (!p || p.status !== "Pendente") return;
+    setPedidosProduto((ps) => ps.map((x) => (x.id === id ? { ...x, status, itemId, respondidoEm: todayISO() } : x)));
+    if (status === "Recusado") registrar("Produto", `Produto ${p.nome} de ${p.vendedorNome} recusado`);
+    else registrar("Produto", `Entrada de ${p.nome} (${p.qtd} un.) de ${p.vendedorNome} aprovada`);
+  }
+
   function pagarConta(id, caixaKey, valorNoCaixa) {
     const conta = contas.find((c) => c.id === id);
     if (!conta || conta.status === "Pago") return;
@@ -911,7 +936,7 @@ export default function Shopping25App() {
   const dadosBackup = () => ({
     app: "shopping25", versao: 2, exportadoEm: new Date().toISOString(),
     estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, orcamentos, freteiros, movimentos, contas, cambio,
-    historico, fechamentos,
+    historico, fechamentos, pedidosProduto: pedidosProdutoTodos,
   });
 
   // Backup automático do dia (só no computador do dono, que tem todos os dados).
@@ -949,7 +974,7 @@ export default function Shopping25App() {
     db.gravar("estoque", estoqueBase); db.gravar("vendas", vendas); db.gravar("compras", compras);
     db.gravar("clientes", clientes); db.gravar("fornecedores", fornecedores); db.gravar("movimentos", movimentos);
     db.gravar("contas", contas); db.gravar("vendedores", vendedores); db.gravar("orcamentos", orcamentos); db.gravar("freteiros", freteiros); db.gravar("config", [cambio]);
-    db.gravar("historico", historicoTodo); db.gravar("fechamentos", fechamentosTodos);
+    db.gravar("historico", historicoTodo); db.gravar("fechamentos", fechamentosTodos); db.gravar("pedidosProduto", pedidosProdutoTodos);
     const n = await db.importar(normalizar(bruto));
     recarregarTudo();
     return n;
@@ -1000,6 +1025,7 @@ export default function Shopping25App() {
     salvarOrcamento, atualizarOrcamento, aprovarPrecoOrcamento, excluirOrcamento, converterOrcamento, salvarFreteiro, excluirFreteiro, pagarFreteiro,
     entregasPendentes, cotacoesAguardando, orcamentosParaAprovar, orcamentosDoVendedor, respostasDoDono, marcarOrcamentoVisto, baixarBackup, baixarBackupDoDia, restaurarBackup, vendasTodas,
     sync, instalar, setInstalar, ehVendedor, meuVendedorId, acesso, vendedoresTodos,
+    pedidosProduto, pedidosParaAprovar, pedirProduto, responderPedidoProduto,
   };
 
   if (erroCarregar) {
@@ -1064,7 +1090,7 @@ export default function Shopping25App() {
   }
 
   const contadores = {
-    estoque: ehVendedor ? 0 : estoqueBaixo.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
+    estoque: ehVendedor ? 0 : estoqueBaixo.length + pedidosParaAprovar.length, contas: contasVencendo.length, clientes: clientesSemPedido.length,
     frete: entregasPendentes.length + cotacoesAguardando.length,
     orcamentos: ehVendedor ? respostasDoDono.length : orcamentosDoVendedor.length,
   };
@@ -1207,6 +1233,7 @@ export default function Shopping25App() {
         {modal === "devolucao" && <DevolucaoModal />}
         {modal === "movimento" && <MovimentoModal />}
         {modal === "item" && <ItemModal />}
+        {modal === "pedidoProduto" && ehVendedor && <PedidoProdutoModal />}
         {modal === "cliente" && <PessoaModal tipo="cliente" />}
         {modal === "fornecedor" && <PessoaModal tipo="fornecedor" />}
         {modal === "cambio" && <CambioModal />}

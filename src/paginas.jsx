@@ -409,6 +409,8 @@ export function EstoquePage() {
   const filtrando = busca || tipo || marca;
   const colunas = ehVendedor ? 7 : 9;
   return (
+    <>
+    <PedidosProdutoPainel />
     <TableShell
       title="Estoque"
       sub={ehVendedor ? `${estoque.length} produtos` : `${estoque.length} produtos · ${unidadesEstoque} unidades · ${fmtUSD(valorEstoque)} a preço de custo`}
@@ -426,6 +428,11 @@ export function EstoquePage() {
           <button onClick={() => abrirModal("listaPrecos")} className={btnSecundario}>
             <ListChecks size={14} /> Lista de preços
           </button>
+          {ehVendedor && (
+            <button onClick={() => abrirModal("pedidoProduto")} className={btnPrimario}>
+              <Plus size={14} /> Adicionar produto
+            </button>
+          )}
           {!ehVendedor && (
             <>
               <button onClick={() => abrirModal("compra")} className={btnSecundario}>
@@ -545,6 +552,7 @@ export function EstoquePage() {
         </tbody>
       </table>
     </TableShell>
+    </>
   );
 }
 
@@ -1130,5 +1138,52 @@ export function VendedoresPage() {
         </div>
       )}
     </>
+  );
+}
+
+// Produtos cadastrados pelo vendedor: o dono aprova (entra no estoque) ou recusa;
+// o vendedor acompanha a resposta.
+function PedidosProdutoPainel() {
+  const { pedidosProduto, pedidosParaAprovar, responderPedidoProduto, abrirModal, ehVendedor } = useApp();
+  const lista = ehVendedor
+    ? pedidosProduto.filter((p) => p.status === "Pendente" || (p.respondidoEm || "") >= diasAtras(7))
+    : pedidosParaAprovar;
+  if (!lista.length) return null;
+  const cor = { Pendente: "text-amber-700", Aprovado: "text-emerald-700", Recusado: "text-red-600" };
+  function aprovar(p) {
+    abrirModal("item", {
+      nome: p.nome, marca: p.marca, tipo: p.tipo, qtd: p.qtd, custo: p.custo ?? 0,
+      varejo: p.varejo, atacado: p.atacado, lojista: p.lojista, origem: "estoque", min: 3, pedido: p,
+    });
+  }
+  return (
+    <Cartao
+      className="mb-6 border-amber-200"
+      title={ehVendedor ? "Seus produtos para aprovação" : `Produtos aguardando aprovação (${lista.length})`}
+      sub={ehVendedor ? "O produto entra no estoque quando o dono aprovar." : "Cadastrados pelos vendedores. Ao aprovar, o produto entra no estoque."}
+    >
+      <div className="divide-y divide-slate-100">
+        {lista.map((p) => (
+          <div key={p.id} className="py-2.5 flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[12rem]">
+              <div className="text-sm font-medium text-slate-900">{p.nome} <span className="text-slate-400 font-normal">· {p.qtd} un.</span></div>
+              <div className="text-xs text-slate-500">
+                {[p.marca, p.tipo].filter(Boolean).join(" · ")}{(p.marca || p.tipo) ? " · " : ""}Varejo {fmtUSD(p.varejo)}
+                {!ehVendedor && ` · ${p.vendedorNome} · ${fmtDate(p.data)}`}
+                {p.obs && ` · ${p.obs}`}
+              </div>
+            </div>
+            {ehVendedor ? (
+              <span className={`text-xs font-medium ${cor[p.status] || ""}`}>{p.status === "Pendente" ? "Aguardando o dono" : p.status}</span>
+            ) : (
+              <div className="flex gap-2">
+                <button onClick={() => { if (window.confirm(`Recusar "${p.nome}"?`)) responderPedidoProduto(p.id, "Recusado"); }} className="text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 rounded-md px-2.5 py-1">Recusar</button>
+                <button onClick={() => aprovar(p)} className={btnContorno}>Aprovar entrada</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Cartao>
   );
 }

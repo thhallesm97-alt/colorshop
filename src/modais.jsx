@@ -541,7 +541,9 @@ export function MovimentoModal() {
 }
 
 export function ItemModal() {
-  const { editando, estoque, fornecedores, salvarItem, excluirItem, fecharModal } = useApp();
+  const { editando, estoque, fornecedores, salvarItem, excluirItem, fecharModal, responderPedidoProduto } = useApp();
+  // Aberto pelo botão "Aprovar" de um produto cadastrado pelo vendedor.
+  const pedido = editando?.pedido || null;
   const isEdit = !!editando?.id;
   const [nome, setNome] = useState(editando?.nome || "");
   const [qtd, setQtd] = useState(editando?.qtd ?? 0);
@@ -583,7 +585,7 @@ export function ItemModal() {
   function save() {
     if (invalid) return;
     const forn = fornecedores.find((f) => f.id === fornecedorId);
-    salvarItem(
+    const id = salvarItem(
       {
         nome: nomeTrim, marca: marca.trim(), tipo: tipo.trim(), qtd: deFornecedor ? 0 : qtd, custo,
         custoVendedor: custoVendedor === "" ? null : n(custoVendedor), varejo, atacado, lojista, min: deFornecedor ? 0 : min,
@@ -591,11 +593,18 @@ export function ItemModal() {
       },
       isEdit ? editando : null
     );
+    if (pedido) responderPedidoProduto(pedido.id, "Aprovado", id);
     fecharModal();
   }
 
   return (
-    <Modal title={isEdit ? "Editar produto" : "Novo produto"} onClose={fecharModal} wide>
+    <Modal title={pedido ? "Aprovar entrada do produto" : isEdit ? "Editar produto" : "Novo produto"} onClose={fecharModal} wide>
+      {pedido && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Cadastrado por <b>{pedido.vendedorNome}</b> em {fmtDate(pedido.data)}. Confira os preços e o custo; ao salvar, o produto entra no estoque.
+          {pedido.obs && <div className="mt-1 text-amber-700">Obs.: {pedido.obs}</div>}
+        </div>
+      )}
       <div className="flex gap-4 items-start mb-4 flex-wrap sm:flex-nowrap">
         <div className="shrink-0">
           <button
@@ -700,8 +709,80 @@ export function ItemModal() {
         </button>
       )}
       <button onClick={save} disabled={invalid || carregandoFoto} className={btnPrimario + " w-full"}>
-        {isEdit ? "Salvar alterações" : "Cadastrar produto"}
+        {pedido ? "Aprovar e dar entrada" : isEdit ? "Salvar alterações" : "Cadastrar produto"}
       </button>
+    </Modal>
+  );
+}
+
+// O vendedor cadastra um produto novo; ele só entra no estoque depois que o dono aprova.
+export function PedidoProdutoModal() {
+  const { estoque, pedidosProduto, pedirProduto, fecharModal } = useApp();
+  const [nome, setNome] = useState("");
+  const [marca, setMarca] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [qtd, setQtd] = useState(1);
+  const [custo, setCusto] = useState("");
+  const [varejo, setVarejo] = useState(0);
+  const [atacado, setAtacado] = useState(0);
+  const [lojista, setLojista] = useState(0);
+  const [obs, setObs] = useState("");
+  const sugestoes = (campo) => [...new Set(estoque.map((i) => (i[campo] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+  const nomeTrim = nome.trim();
+  const duplicado = estoque.some((i) => normalizar(i.nome) === normalizar(nomeTrim))
+    || pedidosProduto.some((p) => p.status === "Pendente" && normalizar(p.nome) === normalizar(nomeTrim));
+  const invalid = !nomeTrim || duplicado || !(qtd > 0) || !(varejo > 0);
+
+  function save() {
+    if (invalid) return;
+    pedirProduto({
+      nome: nomeTrim, marca: marca.trim(), tipo: tipo.trim(), qtd, custo: custo === "" ? null : n(custo),
+      varejo, atacado: atacado > 0 ? atacado : varejo, lojista: lojista > 0 ? lojista : atacado > 0 ? atacado : varejo, obs: obs.trim(),
+    });
+    fecharModal();
+  }
+
+  return (
+    <Modal title="Adicionar produto" onClose={fecharModal} wide>
+      <p className="text-sm text-slate-500 mb-4">O produto fica aguardando o dono aprovar. Depois de aprovado, ele entra no estoque.</p>
+      <Field label="Nome do produto">
+        <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
+        {duplicado && <div className="text-xs text-red-600 mt-1">Esse produto já está no estoque ou aguardando aprovação.</div>}
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Marca">
+          <input className={inputCls} list="pedido-marca" value={marca} onChange={(e) => setMarca(e.target.value)} />
+          <datalist id="pedido-marca">{sugestoes("marca").map((m) => <option key={m} value={m} />)}</datalist>
+        </Field>
+        <Field label="Tipo">
+          <input className={inputCls} list="pedido-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} />
+          <datalist id="pedido-tipo">{sugestoes("tipo").map((m) => <option key={m} value={m} />)}</datalist>
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Quantidade *">
+          <input type="number" min="1" step="1" className={inputCls} value={qtd} onChange={(e) => setQtd(Math.floor(n(e.target.value)))} />
+        </Field>
+        <Field label="Custo (US$)" hint="Quanto custou, se souber.">
+          <input type="number" step="0.01" min="0" className={inputCls} value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="—" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Varejo (US$) *">
+          <input type="number" step="0.01" min="0" className={inputCls} value={varejo} onChange={(e) => setVarejo(n(e.target.value))} />
+        </Field>
+        <Field label="Atacado (US$)">
+          <input type="number" step="0.01" min="0" className={inputCls} value={atacado} onChange={(e) => setAtacado(n(e.target.value))} />
+        </Field>
+        <Field label="Lojista (US$)">
+          <input type="number" step="0.01" min="0" className={inputCls} value={lojista} onChange={(e) => setLojista(n(e.target.value))} />
+        </Field>
+      </div>
+      <Field label="Observação para o dono">
+        <input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: chegou do fornecedor X" />
+      </Field>
+      <button onClick={save} disabled={invalid} className={btnPrimario + " w-full"}>Enviar para aprovação</button>
     </Modal>
   );
 }

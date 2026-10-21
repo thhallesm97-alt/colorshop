@@ -81,7 +81,7 @@ $$;
 create or replace function public.vendedor_ve(p_colecao text, p_id text, p_dados jsonb) returns boolean
 language sql stable security definer set search_path = '' as $$
   select case
-    when p_colecao in ('clientes', 'vendas', 'orcamentos', 'movimentos') then coalesce(p_dados ->> 'vendedorId', '') = public.meu_vendedor()
+    when p_colecao in ('clientes', 'vendas', 'orcamentos', 'movimentos', 'pedidosProduto') then coalesce(p_dados ->> 'vendedorId', '') = public.meu_vendedor()
     when p_colecao = 'vendedores' then p_id = public.meu_vendedor()
     when p_colecao in ('freteiros', 'config') then true
     else false
@@ -118,7 +118,7 @@ begin
     if v_papel = 'vendedor' then
       -- Vendedor só grava os próprios clientes, vendas e orçamentos; não mexe no caixa.
       -- O que ele não pode gravar é ignorado (não trava a sincronização dele).
-      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico') then continue; end if;
+      if r.colecao not in ('clientes', 'vendas', 'orcamentos', 'historico', 'pedidosProduto') then continue; end if;
       select * into atual from public.registros where colecao = r.colecao and id = r.id;
       v_existe := found;
       -- Histórico: o vendedor só acrescenta (não muda nem apaga), sempre com o nome dele.
@@ -129,8 +129,8 @@ begin
       end if;
       if v_existe and coalesce(atual.dados ->> 'vendedorId', '') <> v_vend then continue; end if;
       if coalesce(r.excluido, false) then
-        -- Só o dono exclui vendas e clientes.
-        if r.colecao in ('vendas', 'clientes') then continue; end if;
+        -- Só o dono exclui vendas, clientes e produtos para aprovação.
+        if r.colecao in ('vendas', 'clientes', 'pedidosProduto') then continue; end if;
       elsif coalesce(r.dados ->> 'vendedorId', '') <> v_vend then
         continue;
       end if;
@@ -149,6 +149,13 @@ begin
         v_dados := (v_dados - 'devolucoes' - 'pagamentos') || jsonb_build_object(
           'devolucoes', case when v_existe then coalesce(atual.dados -> 'devolucoes', '[]'::jsonb) else '[]'::jsonb end,
           'pagamentos', case when v_existe then coalesce(atual.dados -> 'pagamentos', '[]'::jsonb) else '[]'::jsonb end);
+      end if;
+      -- Só o dono aprova a entrada do produto cadastrado pelo vendedor.
+      if r.colecao = 'pedidosProduto' and v_dados is not null then
+        v_dados := (v_dados - 'status' - 'itemId' - 'respondidoEm') || jsonb_build_object(
+          'status', case when v_existe then coalesce(atual.dados -> 'status', '"Pendente"'::jsonb) else '"Pendente"'::jsonb end,
+          'itemId', case when v_existe then coalesce(atual.dados -> 'itemId', 'null'::jsonb) else 'null'::jsonb end,
+          'respondidoEm', case when v_existe then coalesce(atual.dados -> 'respondidoEm', 'null'::jsonb) else 'null'::jsonb end);
       end if;
       -- Só o dono aprova o preço alterado no orçamento.
       if r.colecao = 'orcamentos' and coalesce(v_dados ->> 'aprovacaoPreco', '') = 'Aprovado'
