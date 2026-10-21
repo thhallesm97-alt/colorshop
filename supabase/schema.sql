@@ -298,12 +298,11 @@ grant execute on function public.definir_login(text, text), public.email_de_logi
 -- deles, só com produtos, quantidades e o custo para vendedores (sem clientes).
 -- =====================================================================
 create or replace function public.vendas_dos_indicados()
-returns table (vendedor_id text, vendedor_nome text, indicado_por text, meta numeric, venda jsonb)
+returns table (vendedor_id text, vendedor_nome text, indicado_por text, venda jsonb)
 language sql stable security definer set search_path = '' as $$
-  select iv.id, iv.dados ->> 'nome', iv.dados ->> 'indicadoPor', coalesce(nullif(iv.dados ->> 'meta', '')::numeric, 0),
+  select iv.id, iv.dados ->> 'nome', iv.dados ->> 'indicadoPor',
          case when v.id is null then null else jsonb_build_object(
            'id', v.id, 'vendedorId', v.dados -> 'vendedorId', 'data', v.dados -> 'data',
-           'valor', v.dados -> 'valor', 'valorProdutos', v.dados -> 'valorProdutos',
            'itens', (select coalesce(jsonb_agg(jsonb_build_object('itemId', l -> 'itemId', 'qtd', l -> 'qtd', 'subtotal', l -> 'subtotal', 'custoVendedor', l -> 'custoVendedor') order by i), '[]'::jsonb)
                      -- Mantém a ordem dos produtos: as devoluções apontam para a posição (linha).
                      from jsonb_array_elements(case when jsonb_typeof(v.dados -> 'itens') = 'array' then v.dados -> 'itens' else '[]'::jsonb end) with ordinality as x(l, i)),

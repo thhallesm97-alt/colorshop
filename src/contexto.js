@@ -91,27 +91,21 @@ export const BONUS_META_PADRAO = 20;
 
 // Comissão de um vendedor num mês ("2026-10"): % sobre o lucro das vendas dele, mais a
 // comissão de indicação (1 nível) sobre o lucro dos vendedores que ele indicou. Quem bate a
-// meta (vendido no mês, sem frete) ganha o bônus sobre a comissão das próprias vendas. Quem
-// indicou só ganha pelo indicado quando ele bate a meta: o bônus sobre o % de indicação do lucro
-// dele (ex.: 20% de 5% do lucro).
+// meta (vendido no mês, sem frete) ganha o bônus sobre a comissão das próprias vendas.
 export function comissaoDoMes(vendedor, vendas, estoque, mes, vendedores = []) {
   const doMes = vendas.filter((v) => String(v.data).startsWith(mes));
   const vs = doMes.filter((v) => v.vendedorId === vendedor.id);
   const lucro = vs.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
   const propria = (Math.max(0, lucro) * Number(vendedor.comissao || 0)) / 100;
-  const vendidoNoMes = (lista) => lista.reduce((s, v) => s + Number(v.valorProdutos ?? v.valor ?? 0), 0);
-  const bateu = (vd, lista) => Number(vd.meta || 0) > 0 && vendidoNoMes(lista) >= Number(vd.meta);
-  const bateuMeta = bateu(vendedor, vs);
+  const vendido = vs.reduce((s, v) => s + Number(v.valorProdutos ?? v.valor ?? 0), 0);
+  const meta = Number(vendedor.meta || 0);
+  const bateuMeta = meta > 0 && vendido >= meta;
   const pctBonus = Number(vendedor.bonusMeta ?? BONUS_META_PADRAO);
   const bonus = bateuMeta ? (propria * pctBonus) / 100 : 0;
   const pctIndicacao = Number(vendedor.comissaoIndicacao ?? COMISSAO_INDICACAO_PADRAO);
   const indicados = vendedores.filter((x) => x.indicadoPor === vendedor.id).map((x) => {
-    const delas = doMes.filter((v) => v.vendedorId === x.id);
-    const lucroDele = delas.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
-    const base = (Math.max(0, lucroDele) * pctIndicacao) / 100;
-    const bateuMetaDele = bateu(x, delas);
-    const valorDele = bateuMetaDele ? (base * pctBonus) / 100 : 0;
-    return { vendedor: x, lucro: lucroDele, base, bateuMeta: bateuMetaDele, valor: valorDele };
+    const lucroDele = doMes.filter((v) => v.vendedorId === x.id).reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
+    return { vendedor: x, lucro: lucroDele, valor: (Math.max(0, lucroDele) * pctIndicacao) / 100 };
   });
   const indicacao = indicados.reduce((s, x) => s + x.valor, 0);
   const valor = propria + bonus + indicacao;

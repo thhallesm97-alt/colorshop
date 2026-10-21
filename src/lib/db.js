@@ -281,7 +281,7 @@ export async function vendasDosIndicados() {
   const indicados = new Map();
   const vendas = [];
   for (const l of data || []) {
-    if (!indicados.has(l.vendedor_id)) indicados.set(l.vendedor_id, { id: l.vendedor_id, nome: l.vendedor_nome, indicadoPor: l.indicado_por, meta: Number(l.meta || 0) });
+    if (!indicados.has(l.vendedor_id)) indicados.set(l.vendedor_id, { id: l.vendedor_id, nome: l.vendedor_nome, indicadoPor: l.indicado_por });
     if (l.venda) vendas.push(l.venda);
   }
   return { indicados: [...indicados.values()], vendas };
