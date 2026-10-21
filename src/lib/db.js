@@ -27,7 +27,7 @@ export const COLECOES = {
   config: "asc",
 };
 
-const store = createStore("indufarma", "registros");
+const store = createStore("shopping25", "registros");
 const META = "_meta";
 const LOTE = 500;
 // Relê alguns registros já vistos a cada sincronização, para não perder gravações
@@ -46,7 +46,7 @@ const estado = { sincronizando: false, ultimaSync: null, erro: null, erroLocal: 
 // Fica guardado para o sistema abrir certo mesmo sem internet.
 function lerAcessoSalvo() {
   try {
-    return JSON.parse(localStorage.getItem("indufarma-acesso") || "null");
+    return JSON.parse(localStorage.getItem("shopping25-acesso") || "null");
   } catch (e) {
     return null;
   }
@@ -54,8 +54,8 @@ function lerAcessoSalvo() {
 function guardarAcesso(a) {
   estado.acesso = a;
   try {
-    if (a) localStorage.setItem("indufarma-acesso", JSON.stringify(a));
-    else localStorage.removeItem("indufarma-acesso");
+    if (a) localStorage.setItem("shopping25-acesso", JSON.stringify(a));
+    else localStorage.removeItem("shopping25-acesso");
   } catch (e) {
     /* opcional */
   }
@@ -201,7 +201,7 @@ let repetir = false;
 function iniciarNuvem() {
   if (!SB_URL || !SB_KEY || sb) return;
   sb = createClient(SB_URL, SB_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, storageKey: "indufarma-login" },
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: "shopping25-login" },
   });
   sb.auth.getSession().then(({ data }) => {
     sessao = data.session;
@@ -248,8 +248,8 @@ export function status() {
   };
 }
 
-// Login por usuário: "joao" entra como joao@indufarma.app. Quem digitar um e-mail usa o e-mail.
-export const DOMINIO_LOGIN = "indufarma.app";
+// Login por usuário: "joao" entra como joao@shopping25.app. Quem digitar um e-mail usa o e-mail.
+export const DOMINIO_LOGIN = "shopping25.app";
 export const emailDeLogin = (usuario) => {
   const u = String(usuario || "").trim().toLowerCase();
   return !u ? "" : u.includes("@") ? u : `${u}@${DOMINIO_LOGIN}`;

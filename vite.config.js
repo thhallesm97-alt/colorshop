@@ -15,14 +15,14 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icone.svg", "icone-192.png", "icone-512.png"],
       manifest: {
-        name: "Indufarma — Gestão",
-        short_name: "Indufarma",
-        description: "Estoque, vendas, clientes, fornecedores e caixa da Indufarma.",
+        name: "Shopping 25 — Gestão",
+        short_name: "Shopping 25",
+        description: "Estoque, vendas, clientes, fornecedores e caixa do Shopping 25.",
         lang: "pt-BR",
         start_url: "/",
         display: "standalone",
         background_color: "#f8fafc",
-        theme_color: "#065f46",
+        theme_color: "#173265",
         icons: [
           { src: "icone-192.png", sizes: "192x192", type: "image/png" },
           { src: "icone-512.png", sizes: "512x512", type: "image/png" },

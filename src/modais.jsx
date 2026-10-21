@@ -127,7 +127,7 @@ export function VendaModal() {
   const [clienteId, setClienteId] = useState("");
   const [modo, setModo] = useState("cadastro");
   const [vendedorId, setVendedorId] = useState(() => {
-    const ultimo = lerLocal("indufarma-ultimo-vendedor");
+    const ultimo = lerLocal("shopping25-ultimo-vendedor");
     return ativos.some((v) => v.id === ultimo) ? ultimo : "";
   });
   const [itemId, setItemId] = useState(disponiveis[0]?.id || "");
@@ -172,7 +172,7 @@ export function VendaModal() {
     });
     if (typeof e === "string") setErro(e);
     else {
-      gravarLocal("indufarma-ultimo-vendedor", vendedorId);
+      gravarLocal("shopping25-ultimo-vendedor", vendedorId);
       fecharModal();
     }
   }
@@ -725,7 +725,7 @@ export function ContaModal() {
           {CATEGORIAS.map((c) => <option key={c}>{c}</option>)}
         </select>
       </Field>
-      <Field label="Nome da conta"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Energia - Farmácia" /></Field>
+      <Field label="Nome da conta"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Energia - Loja" /></Field>
       <Field label="Moeda da conta">
         <Segmentado valor={moeda} onChange={setMoeda} opcoes={[{ valor: "USD", label: "Dólar (US$)" }, { valor: "BRL", label: "Reais (R$)" }]} />
       </Field>
@@ -992,7 +992,7 @@ export function DadosModal() {
           </div>
         ) : (
           <form onSubmit={entrar}>
-            <p className="text-sm text-slate-500 mb-3">Entre com a conta da farmácia para este computador enviar e receber os dados da nuvem.</p>
+            <p className="text-sm text-slate-500 mb-3">Entre com a conta da loja para este computador enviar e receber os dados da nuvem.</p>
             <Field label="Usuário"><input type="text" required className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" autoCapitalize="none" placeholder="Ex.: thalles" /></Field>
             <Field label="Senha"><input type="password" required className={inputCls} value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" /></Field>
             <button type="submit" disabled={ocupado || !sync.online} className={btnPrimario + " w-full"}>
@@ -1033,8 +1033,8 @@ export function DadosModal() {
       <div>
         <div className="text-sm font-semibold text-slate-900 mb-1">Usar como aplicativo</div>
         <p className="text-sm text-slate-500 mb-3">
-          Instale o Indufarma neste computador para abrir pelo ícone na área de trabalho, mesmo sem internet.
-          {!instalar && " Se o botão não aparecer, use o menu do Chrome ou Edge: “Instalar Indufarma”."}
+          Instale o Shopping 25 neste computador para abrir pelo ícone na área de trabalho, mesmo sem internet.
+          {!instalar && " Se o botão não aparecer, use o menu do Chrome ou Edge: “Instalar Shopping 25”."}
         </p>
         {instalar && (
           <button
@@ -1146,7 +1146,7 @@ export function ListaPrecosModal() {
   const selecionados = candidatos.filter((i) => !desmarcados.has(i.id));
 
   const gerado = [
-    `*Indufarma · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
+    `*Shopping 25 · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
     fmtDate(todayISO()),
     "",
     ...selecionados.map((i) => `• ${i.nome}: ${fmtUSD(precoDe(i, tabela))}${comFotos && i.foto ? `\n  Foto: ${urlPublica(i.foto)}` : ""}`),

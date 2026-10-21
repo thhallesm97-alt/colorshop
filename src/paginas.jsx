@@ -38,7 +38,7 @@ function calcularMaisVendidos(vendas, estoque, desde) {
 function textoCobranca(v) {
   const pago = valorPagoDaVenda(v);
   const valor = pago > 0 ? `${fmtUSD(faltaReceber(v))} (já recebemos ${fmtUSD(pago)} de ${fmtUSD(v.valor)})` : fmtUSD(v.valor);
-  return `Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} na Indufarma, falta ${valor}. Obrigado!`;
+  return `Olá ${v.clienteNome}, tudo bem? Passando para lembrar do pagamento da compra #${v.numero} no Shopping 25, falta ${valor}. Obrigado!`;
 }
 
 export function VisaoGeral() {
@@ -297,8 +297,8 @@ export const diasDesde = (iso) => Math.round((parseISO(todayISO()) - parseISO(is
 
 export const mensagemSaudade = (c) =>
   c.motivo === "retorno" || c.proximoContato
-    ? `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Conforme combinamos, estou passando para ver o seu pedido. Quer que eu te mande a lista de preços atualizada?`
-    : `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma. Faz alguns dias que não recebemos seu pedido. Precisa de algum produto? Posso te mandar nossa lista de preços atualizada.`;
+    ? `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é do Shopping 25. Conforme combinamos, estou passando para ver o seu pedido. Quer que eu te mande a lista de preços atualizada?`
+    : `Olá ${c.nome.split(" ")[0]}, tudo bem? Aqui é do Shopping 25. Faz alguns dias que não recebemos seu pedido. Precisa de algum produto? Posso te mandar nossa lista de preços atualizada.`;
 
 function LinhaSemPedido({ c, vendedor, mostrarVendedor, registrarContato, abrirModal }) {
   const retorno = c.motivo === "retorno";
@@ -899,7 +899,7 @@ export function PessoasPage({ tipo }) {
                   <div className="flex items-center justify-end gap-1">
                     <LinkWhatsApp
                       contato={p.contato}
-                      texto={semPedido.has(p.id) ? mensagemSaudade(p) : `Olá ${p.nome.split(" ")[0]}, tudo bem? Aqui é da Indufarma.`}
+                      texto={semPedido.has(p.id) ? mensagemSaudade(p) : `Olá ${p.nome.split(" ")[0]}, tudo bem? Aqui é do Shopping 25.`}
                       onClick={isCliente ? () => app.registrarContato(p.id) : undefined}
                     />
                     {isCliente && <button onClick={() => app.abrirModal("listaPrecos", p)} className={btnIcone} title="Enviar lista de preços"><ListChecks size={15} /></button>}

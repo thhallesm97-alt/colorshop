@@ -70,7 +70,7 @@ export function FornecedorDetalheModal() {
     <Modal title={f.nome} onClose={fecharModal} wide>
       <div className="flex items-center justify-between gap-3 -mt-2 mb-4 text-sm text-slate-500">
         <span>{[f.contato, f.obs].filter(Boolean).join(" · ") || "Sem contato"}</span>
-        <LinkWhatsApp contato={f.contato} texto={`Olá, tudo bem? Aqui é da Indufarma.`} />
+        <LinkWhatsApp contato={f.contato} texto={`Olá, tudo bem? Aqui é do Shopping 25.`} />
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
         <Numero rotulo="Produtos" valor={produtos.length} />

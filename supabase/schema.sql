@@ -1,4 +1,4 @@
--- Banco na nuvem do Indufarma (Supabase).
+-- Banco na nuvem do Shopping 25 (Supabase).
 -- Rode este arquivo uma vez no "SQL Editor" do projeto no Supabase.
 
 create sequence if not exists registros_seq;
@@ -224,14 +224,14 @@ create policy "dono envia fotos" on storage.objects
   with check (bucket_id = 'fotos-produtos' and (select public.meu_papel()) = 'dono');
 
 -- =====================================================================
--- Login por usuário: "joao" vira o e-mail interno joao@indufarma.app.
+-- Login por usuário: "joao" vira o e-mail interno joao@shopping25.app.
 -- O dono cria e troca o login e a senha dos vendedores pelo sistema.
 -- =====================================================================
 create or replace function public.email_de_login(p text) returns text
 language sql immutable set search_path = '' as $$
   select case when p is null or trim(p) = '' then null
               when position('@' in p) > 0 then lower(trim(p))
-              else lower(trim(p)) || '@indufarma.app' end
+              else lower(trim(p)) || '@shopping25.app' end
 $$;
 
 create or replace function public.meu_vendedor() returns text

@@ -3,7 +3,7 @@
 
 import { createStore, get, set, del, keys } from "idb-keyval";
 
-const loja = createStore("indufarma-backups", "backups");
+const loja = createStore("shopping25-backups", "backups");
 const MANTER = 30;
 
 const hojeISO = () => {

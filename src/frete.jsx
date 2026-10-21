@@ -26,7 +26,7 @@ function listaItens(itens) {
 
 export function mensagemFreteiro(o, f) {
   return [
-    `Olá, ${f.nome}! Tudo bem? Aqui é da Indufarma. Preciso de uma cotação de frete:`,
+    `Olá, ${f.nome}! Tudo bem? Aqui é do Shopping 25. Preciso de uma cotação de frete:`,
     "",
     `*Pedido (orçamento #${o.numero})*`,
     listaItens(o.itens),
@@ -47,7 +47,7 @@ const emReais = (usd, taxa) => (taxa > 0 ? ` (${fmtBRL(n(usd) * taxa)})` : "");
 export function mensagemCliente(o, comNomes = false, cambio = null) {
   const taxa = n(cambio?.chacoCompra);
   const linhas = [
-    `Olá, ${o.clienteNome || "tudo bem"}! Segue o seu orçamento #${o.numero} da Indufarma:`,
+    `Olá, ${o.clienteNome || "tudo bem"}! Segue o seu orçamento #${o.numero} do Shopping 25:`,
     "",
     ...o.itens.map((l) => `• ${l.itemNome} × ${l.qtd}: ${fmtUSD(l.subtotal)}`),
     "",
@@ -209,7 +209,7 @@ export function FretePage() {
                 const cliente = clientes.find((c) => c.id === v.clienteId);
                 const previsao = f.enviadoEm ? somarDias(f.enviadoEm, f.prazoDias) : null;
                 const atrasada = f.status === "Enviado" && previsao && previsao < hoje;
-                const msgEnvio = `Olá, ${v.clienteNome}! Seu pedido #${v.numero} da Indufarma foi enviado com ${f.freteiroNome}. A previsão de chegada é ${fmtDate(somarDias(todayISO(), f.prazoDias))}. Obrigado pela compra!`;
+                const msgEnvio = `Olá, ${v.clienteNome}! Seu pedido #${v.numero} do Shopping 25 foi enviado com ${f.freteiroNome}. A previsão de chegada é ${fmtDate(somarDias(todayISO(), f.prazoDias))}. Obrigado pela compra!`;
                 return (
                   <tr key={v.id} className={linhaCls}>
                     <Td>
@@ -339,7 +339,7 @@ function mensagemCobranca(nomeFreteiro, entregas) {
     return `• Pedido #${v.numero} para ${destino}: enviado em ${fmtDate(v.frete.enviadoEm)}${previsao ? `, previsão ${fmtDate(previsao)}` : ""}\n  ${(v.itens || []).map((l) => `${l.itemNome} × ${l.qtd}`).join(", ")}`;
   });
   return [
-    `Olá, ${nomeFreteiro}! Aqui é da Indufarma. Pode me passar a situação ${entregas.length === 1 ? "desta entrega" : "destas entregas"}?`,
+    `Olá, ${nomeFreteiro}! Aqui é do Shopping 25. Pode me passar a situação ${entregas.length === 1 ? "desta entrega" : "destas entregas"}?`,
     "",
     ...linhas,
     "",
@@ -441,7 +441,7 @@ function EmTransito() {
   );
 }
 
-// Fretes que o cliente paga à farmácia e a farmácia repassa ao freteiro.
+// Fretes que o cliente paga à loja e a loja repassa ao freteiro.
 function PagarFreteiros() {
   const { vendas, pagarFreteiro } = useApp();
   const [verPagos, setVerPagos] = useState(false);

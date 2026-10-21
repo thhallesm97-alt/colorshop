@@ -96,7 +96,7 @@ export function dadosDemo() {
     { id: "m2", caixa: "pix", tipo: "Entrada", valor: 1200, descricao: "Saldo inicial", data: diasAtras(20) },
   ];
   const contas = [
-    { id: "k1", nome: "Energia - Farmácia", categoria: "Energia", valor: 85, vencimento: diasAtras(0), status: "Pendente", dataPagamento: null },
+    { id: "k1", nome: "Energia - Loja", categoria: "Energia", valor: 85, vencimento: diasAtras(0), status: "Pendente", dataPagamento: null },
     { id: "k2", nome: "Aluguel", categoria: "Aluguel", valor: 600, vencimento: diasAtras(-12), status: "Pendente", dataPagamento: null },
     { id: "k4", nome: "Compra de Distribuidora Guaraní (1/2)", categoria: "Fornecedor", valor: 72.5, vencimento: diasAtras(-20), status: "Pendente", dataPagamento: null, compraId: "cp2", fornecedorId: "f1" },
     { id: "k5", nome: "Compra de Distribuidora Guaraní (2/2)", categoria: "Fornecedor", valor: 72.5, vencimento: diasAtras(-50), status: "Pendente", dataPagamento: null, compraId: "cp2", fornecedorId: "f1" },

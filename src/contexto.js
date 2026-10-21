@@ -49,7 +49,7 @@ export const produtoCombina = (item, busca) => {
 };
 export const descricaoProduto = (item) => [item?.marca, item?.tipo].filter(Boolean).join(" · ");
 
-// Produto de fornecedor: não fica no estoque da farmácia, é pedido ao fornecedor quando vende.
+// Produto de fornecedor: não fica no estoque da loja, é pedido ao fornecedor quando vende.
 export const ehDeFornecedor = (item) => item?.origem === "fornecedor";
 
 // Custo usado na comissão do vendedor: o custo para vendedores, ou o custo real se ele

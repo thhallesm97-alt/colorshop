@@ -7,8 +7,8 @@
 import { useEffect, useState } from "react";
 import { createStore, get, set, del, keys } from "idb-keyval";
 
-const fotos = createStore("indufarma-fotos", "fotos");
-const pendentes = createStore("indufarma-fotos-pendentes", "pendentes");
+const fotos = createStore("shopping25-fotos", "fotos");
+const pendentes = createStore("shopping25-fotos-pendentes", "pendentes");
 export const BUCKET = "fotos-produtos";
 const SB_URL = import.meta.env.VITE_SUPABASE_URL;
 

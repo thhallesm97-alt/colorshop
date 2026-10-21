@@ -46,10 +46,10 @@ const NAV = [
 const VERSAO_DEMO = "11";
 // Na demonstração dá para ver o sistema como um vendedor o veria.
 const lerVerComo = () => {
-  try { return JSON.parse(localStorage.getItem("indufarma-ver-como") || "null"); } catch (e) { return null; }
+  try { return JSON.parse(localStorage.getItem("shopping25-ver-como") || "null"); } catch (e) { return null; }
 };
 const lerVersaoDemo = () => {
-  try { return localStorage.getItem("indufarma-demo"); } catch (e) { return null; }
+  try { return localStorage.getItem("shopping25-demo"); } catch (e) { return null; }
 };
 
 // Carrega o banco uma única vez, mesmo que o React monte o componente duas vezes.
@@ -61,7 +61,7 @@ function carregarBanco() {
     if (import.meta.env.VITE_DEMO && lerVersaoDemo() !== VERSAO_DEMO) {
       await db.limpar();
       vazio = true;
-      try { localStorage.setItem("indufarma-demo", VERSAO_DEMO); } catch (e) { /* opcional */ }
+      try { localStorage.setItem("shopping25-demo", VERSAO_DEMO); } catch (e) { /* opcional */ }
     }
     if (vazio) {
       const antigos = lerDadosAntigosDoNavegador();
@@ -75,7 +75,7 @@ function carregarBanco() {
   })());
 }
 
-export default function IndufarmaApp() {
+export default function Shopping25App() {
   const [page, setPage] = useState("visao");
   const [menuAberto, setMenuAberto] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -249,7 +249,7 @@ export default function IndufarmaApp() {
   const [verComo, setVerComoEstado] = useState(() => (import.meta.env.VITE_DEMO ? lerVerComo() : null));
   const setVerComo = (v) => {
     setVerComoEstado(v);
-    try { localStorage.setItem("indufarma-ver-como", JSON.stringify(v)); } catch (e) { /* opcional */ }
+    try { localStorage.setItem("shopping25-ver-como", JSON.stringify(v)); } catch (e) { /* opcional */ }
   };
   const acesso = verComo || (sync.papel === "vendedor" ? { papel: "vendedor", vendedorId: sync.vendedorId } : { papel: sync.papel === "sem_acesso" ? "sem_acesso" : "dono" });
   const ehVendedor = acesso.papel === "vendedor";
@@ -804,7 +804,7 @@ export default function IndufarmaApp() {
     registrar("Pagamento", `Conta paga: ${conta.nome}, ${fmtConta(conta)} (saiu ${CAIXA_META[caixaKey].format(saiu)} do ${CAIXA_META[caixaKey].label})`);
   }
 
-  // O cliente paga o frete para a farmácia e a farmácia repassa ao freteiro.
+  // O cliente paga o frete para a loja e a loja repassa ao freteiro.
   function pagarFreteiro(vendaIds, caixaKey, nomeFreteiro) {
     const ids = new Set(vendaIds);
     const lista = vendasTodas.filter((v) => ids.has(v.id) && v.frete && !v.frete.pagoFreteiroEm);
@@ -909,7 +909,7 @@ export default function IndufarmaApp() {
   }
 
   const dadosBackup = () => ({
-    app: "indufarma", versao: 2, exportadoEm: new Date().toISOString(),
+    app: "shopping25", versao: 2, exportadoEm: new Date().toISOString(),
     estoque: estoqueBase, vendas, compras, clientes, fornecedores, vendedores, orcamentos, freteiros, movimentos, contas, cambio,
     historico, fechamentos,
   });
@@ -921,7 +921,7 @@ export default function IndufarmaApp() {
     return () => clearTimeout(t);
   }, [loaded, ehVendedor, hoje]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function baixarBackup(dados = dadosBackup(), nome = `indufarma-backup-${todayISO()}.json`) {
+  function baixarBackup(dados = dadosBackup(), nome = `shopping25-backup-${todayISO()}.json`) {
     const data = dados;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -934,7 +934,7 @@ export default function IndufarmaApp() {
 
   async function baixarBackupDoDia(dia) {
     const dados = await obterBackup(dia);
-    if (dados) baixarBackup(dados, `indufarma-backup-${dia}.json`);
+    if (dados) baixarBackup(dados, `shopping25-backup-${dia}.json`);
   }
 
   async function restaurarBackup(arquivo) {
@@ -1074,8 +1074,8 @@ export default function IndufarmaApp() {
       <div className="flex items-center gap-3 px-5 py-5">
         <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-9 h-9" />
         <div>
-          <div className="text-base font-semibold leading-tight tracking-tight">Indufarma</div>
-          <div className="text-[11px] text-slate-400 leading-tight">Gestão da farmácia</div>
+          <div className="text-base font-semibold leading-tight tracking-tight">Shopping 25</div>
+          <div className="text-[11px] text-slate-400 leading-tight">Gestão da loja</div>
         </div>
       </div>
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
@@ -1185,7 +1185,7 @@ export default function IndufarmaApp() {
 
             {import.meta.env.VITE_DEMO && (
               <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                Demonstração com dados de exemplo. O que você mudar aqui fica só neste navegador e não afeta a farmácia. Excluir e baixar backup não funcionam nesta prévia.
+                Demonstração com dados de exemplo. O que você mudar aqui fica só neste navegador e não afeta a loja. Excluir e baixar backup não funcionam nesta prévia.
               </div>
             )}
 
@@ -1248,8 +1248,8 @@ function TelaEntrar({ sync }) {
         <div className="flex items-center gap-3 mb-6">
           <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-10 h-10" />
           <div>
-            <div className="text-lg font-semibold leading-tight">Indufarma</div>
-            <div className="text-xs text-slate-400">Gestão da farmácia</div>
+            <div className="text-lg font-semibold leading-tight">Shopping 25</div>
+            <div className="text-xs text-slate-400">Gestão da loja</div>
           </div>
         </div>
         {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</div>}
