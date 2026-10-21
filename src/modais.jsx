@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Plus, Trash2, Download, Upload, Cloud, LogOut, Loader2, Monitor, MessageCircle, Copy, Check, ImagePlus, Share2, Image as ImageIcon } from "lucide-react";
-import { useApp, COMISSAO_PADRAO, COMISSAO_INDICACAO_PADRAO, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, fmtConta } from "./contexto.js";
-import { fmtUSD, fmtBRL, fmtDate, fmtHora, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
+import { useApp, COMISSAO_PADRAO, COMISSAO_INDICACAO_PADRAO, BONUS_META_PADRAO, CAIXA_META, PAGAMENTOS, caixaDoPagamento, TABELAS, precoDe, produtoCombina, ehDeFornecedor, descricaoProduto, faltaReceber, valorPagoDaVenda, caixaEmReais, paraMoedaDoCaixa, fmtConta } from "./contexto.js";
+import { fmtUSD, fmtBRL, fmtDate, fmtHora, fmtNum, todayISO, uid, normalizar, isoLocal } from "./lib/format.js";
 import { linkWhatsApp } from "./lib/whatsapp.js";
 import * as db from "./lib/db.js";
 import { comprimir, salvarFoto, useFoto, obterFoto, copiarFoto, podeCompartilhar, compartilharFoto, urlPublica } from "./lib/fotos.js";
@@ -1141,6 +1141,7 @@ export function VendedorModal() {
   const [comissaoIndicacao, setComissaoIndicacao] = useState(editando?.comissaoIndicacao ?? COMISSAO_INDICACAO_PADRAO);
   const [indicadoPor, setIndicadoPor] = useState(editando?.indicadoPor || "");
   const [meta, setMeta] = useState(editando?.meta ?? 0);
+  const [bonusMeta, setBonusMeta] = useState(editando?.bonusMeta ?? BONUS_META_PADRAO);
   const [ativo, setAtivo] = useState(editando?.ativo !== false);
   const [podeCadastrarProduto, setPodeCadastrarProduto] = useState(!!editando?.podeCadastrarProduto);
   const [podeIndicarVendedor, setPodeIndicarVendedor] = useState(!!editando?.podeIndicarVendedor);
@@ -1164,12 +1165,12 @@ export function VendedorModal() {
     }
   }
   const nomeVendedor = nome.trim() || "O vendedor";
-  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && comissaoIndicacao >= 0 && comissaoIndicacao <= 100 && meta >= 0 && emailOk;
+  const valido = nome.trim() && comissao >= 0 && comissao <= 100 && comissaoIndicacao >= 0 && comissaoIndicacao <= 100 && bonusMeta >= 0 && bonusMeta <= 1000 && meta >= 0 && emailOk;
   // Só 1 nível: quem indica não pode ser ele mesmo.
   const podemIndicar = vendedoresTodos.filter((v) => v.id !== editando?.id);
   function salvar() {
     const id = salvarVendedor(
-      { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, ativo, podeCadastrarProduto, podeIndicarVendedor, email: email.trim().toLowerCase() },
+      { nome: nome.trim(), contato: contato.trim(), comissao, comissaoIndicacao, indicadoPor: indicadoPor || null, meta, bonusMeta, ativo, podeCadastrarProduto, podeIndicarVendedor, email: email.trim().toLowerCase() },
       isEdit ? editando : null
     );
     if (indicacao) responderIndicacao(indicacao.id, "Aprovado", id);
@@ -1193,6 +1194,11 @@ export function VendedorModal() {
           <input type="number" step="1" min="0" className={inputCls} value={meta} onChange={(e) => setMeta(n(e.target.value))} />
         </Field>
       </div>
+      {meta > 0 && (
+        <Field label="Bônus ao bater a meta (%)" hint={`Se vender ${fmtUSD(meta)} no mês, ganha ${fmtNum(bonusMeta, 1)}% a mais sobre a comissão das vendas dele.`}>
+          <input type="number" step="1" min="0" className={inputCls} value={bonusMeta} onChange={(e) => setBonusMeta(n(e.target.value))} />
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Indicado por" hint="Quem trouxe este vendedor ganha comissão sobre o lucro das vendas dele.">
           <select className={inputCls} value={indicadoPor} onChange={(e) => setIndicadoPor(e.target.value)}>

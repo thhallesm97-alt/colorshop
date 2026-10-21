@@ -86,23 +86,31 @@ export const qtdDevolvida = (venda, linha) =>
 // Comissão padrão de um vendedor novo e de quem indicou outro vendedor (sobre o lucro).
 export const COMISSAO_PADRAO = 10;
 export const COMISSAO_INDICACAO_PADRAO = 5;
+// Bônus de quem bate a meta do mês: % a mais sobre a comissão das vendas dele.
+export const BONUS_META_PADRAO = 20;
 
 // Comissão de um vendedor num mês ("2026-10"): % sobre o lucro das vendas dele, mais a
-// comissão de indicação (1 nível) sobre o lucro dos vendedores que ele indicou.
+// comissão de indicação (1 nível) sobre o lucro dos vendedores que ele indicou. Quem bate a
+// meta (vendido no mês, sem frete) ganha o bônus sobre a comissão das próprias vendas.
 export function comissaoDoMes(vendedor, vendas, estoque, mes, vendedores = []) {
   const doMes = vendas.filter((v) => String(v.data).startsWith(mes));
   const vs = doMes.filter((v) => v.vendedorId === vendedor.id);
   const lucro = vs.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
   const propria = (Math.max(0, lucro) * Number(vendedor.comissao || 0)) / 100;
+  const vendido = vs.reduce((s, v) => s + Number(v.valorProdutos ?? v.valor ?? 0), 0);
+  const meta = Number(vendedor.meta || 0);
+  const bateuMeta = meta > 0 && vendido >= meta;
+  const pctBonus = Number(vendedor.bonusMeta ?? BONUS_META_PADRAO);
+  const bonus = bateuMeta ? (propria * pctBonus) / 100 : 0;
   const pctIndicacao = Number(vendedor.comissaoIndicacao ?? COMISSAO_INDICACAO_PADRAO);
   const indicados = vendedores.filter((x) => x.indicadoPor === vendedor.id).map((x) => {
     const lucroDele = doMes.filter((v) => v.vendedorId === x.id).reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
     return { vendedor: x, lucro: lucroDele, valor: (Math.max(0, lucroDele) * pctIndicacao) / 100 };
   });
   const indicacao = indicados.reduce((s, x) => s + x.valor, 0);
-  const valor = propria + indicacao;
+  const valor = propria + bonus + indicacao;
   const pago = (vendedor.comissoesPagas || []).filter((p) => p.mes === mes).reduce((s, p) => s + Number(p.valor || 0), 0);
-  return { vendas: vs, lucro, propria, indicacao, indicados, pctIndicacao, valor, pago, falta: Math.max(0, Math.round((valor - pago) * 100) / 100) };
+  return { vendas: vs, lucro, propria, bateuMeta, bonus, pctBonus, indicacao, indicados, pctIndicacao, valor, pago, falta: Math.max(0, Math.round((valor - pago) * 100) / 100) };
 }
 
 // Linha com preço diferente do preço da tabela (o preço da tabela fica guardado em precoTabela).

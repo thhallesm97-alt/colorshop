@@ -1119,7 +1119,7 @@ export function VendedoresPage() {
                       <div className={`h-full rounded-full ${bateu ? "bg-emerald-600" : "bg-sky-500"}`} style={{ width: `${Math.min(100, pct)}%` }} />
                     </div>
                     <div className="text-xs text-slate-400 mt-1.5">
-                      {bateu ? "Meta batida!" : ehMesAtual ? `Faltam ${fmtUSD(meta - total)}` : `Ficou ${fmtUSD(meta - total)} abaixo da meta`}
+                      {bateu ? `Meta batida! Bônus de ${fmtNum(c.pctBonus, 1)}% na comissão` : ehMesAtual ? `Faltam ${fmtUSD(meta - total)} para ganhar +${fmtNum(c.pctBonus, 1)}% na comissão` : `Ficou ${fmtUSD(meta - total)} abaixo da meta`}
                     </div>
                   </div>
                 ) : (
@@ -1137,9 +1137,12 @@ export function VendedoresPage() {
                   <span className="text-xs font-medium text-violet-700">{ehVendedor ? "Sua comissão do mês" : `Comissão do mês (${fmtNum(vd.comissao, 1)}% do lucro)`}</span>
                   <span className="text-sm font-semibold text-violet-800">{fmtUSD(comissao)}</span>
                 </div>
-                {c.indicados.length > 0 && (
+                {(c.indicados.length > 0 || c.bonus > 0) && (
                   <div className="mt-2 px-1 text-xs text-slate-500 space-y-0.5">
                     <div className="flex justify-between"><span>Vendas {ehVendedor ? "suas" : "dele"} ({fmtNum(vd.comissao, 1)}%)</span><span>{fmtUSD(c.propria)}</span></div>
+                    {c.bonus > 0 && (
+                      <div className="flex justify-between text-emerald-700"><span>Bônus da meta (+{fmtNum(c.pctBonus, 1)}%)</span><span>{fmtUSD(c.bonus)}</span></div>
+                    )}
                     {c.indicados.map((x) => (
                       <div key={x.vendedor.id} className="flex justify-between"><span>Indicação: {x.vendedor.nome} ({fmtNum(c.pctIndicacao, 1)}%)</span><span>{fmtUSD(x.valor)}</span></div>
                     ))}
