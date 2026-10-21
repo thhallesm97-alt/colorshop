@@ -91,8 +91,9 @@ export const BONUS_META_PADRAO = 20;
 
 // Comissão de um vendedor num mês ("2026-10"): % sobre o lucro das vendas dele, mais a
 // comissão de indicação (1 nível) sobre o lucro dos vendedores que ele indicou. Quem bate a
-// meta (vendido no mês, sem frete) ganha o bônus sobre a comissão das próprias vendas; se o
-// indicado bate a meta dele, quem indicou ganha o mesmo bônus sobre a comissão de indicação.
+// meta (vendido no mês, sem frete) ganha o bônus sobre a comissão das próprias vendas. Quem
+// indicou só ganha pelo indicado quando ele bate a meta: o bônus sobre o % de indicação do lucro
+// dele (ex.: 20% de 5% do lucro).
 export function comissaoDoMes(vendedor, vendas, estoque, mes, vendedores = []) {
   const doMes = vendas.filter((v) => String(v.data).startsWith(mes));
   const vs = doMes.filter((v) => v.vendedorId === vendedor.id);
@@ -109,8 +110,8 @@ export function comissaoDoMes(vendedor, vendas, estoque, mes, vendedores = []) {
     const lucroDele = delas.reduce((s, v) => s + lucroDaVenda(v, estoque), 0);
     const base = (Math.max(0, lucroDele) * pctIndicacao) / 100;
     const bateuMetaDele = bateu(x, delas);
-    const bonusDele = bateuMetaDele ? (base * pctBonus) / 100 : 0;
-    return { vendedor: x, lucro: lucroDele, base, bateuMeta: bateuMetaDele, bonus: bonusDele, valor: base + bonusDele };
+    const valorDele = bateuMetaDele ? (base * pctBonus) / 100 : 0;
+    return { vendedor: x, lucro: lucroDele, base, bateuMeta: bateuMetaDele, valor: valorDele };
   });
   const indicacao = indicados.reduce((s, x) => s + x.valor, 0);
   const valor = propria + bonus + indicacao;

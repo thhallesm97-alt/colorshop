@@ -1144,7 +1144,7 @@ export function VendedoresPage() {
                       <div className="flex justify-between text-emerald-700"><span>Bônus da meta (+{fmtNum(c.pctBonus, 1)}%)</span><span>{fmtUSD(c.bonus)}</span></div>
                     )}
                     {c.indicados.map((x) => (
-                      <div key={x.vendedor.id} className="flex justify-between"><span>Indicação: {x.vendedor.nome} ({fmtNum(c.pctIndicacao, 1)}%{x.bateuMeta ? ` + bônus ${fmtNum(c.pctBonus, 1)}%, bateu a meta` : ""})</span><span>{fmtUSD(x.valor)}</span></div>
+                      <div key={x.vendedor.id} className="flex justify-between"><span>{x.bateuMeta ? `Bônus porque ${x.vendedor.nome} bateu a meta` : `${x.vendedor.nome} ainda não bateu a meta`}</span><span>{fmtUSD(x.valor)}</span></div>
                     ))}
                   </div>
                 )}
@@ -1227,7 +1227,7 @@ function IndicacoesPainel() {
     <Cartao
       className="mb-6 border-amber-200"
       title={ehVendedor ? "Suas indicações" : `Vendedores indicados aguardando aprovação (${lista.length})`}
-      sub={ehVendedor ? "Quando o dono aprovar, você ganha comissão sobre o lucro das vendas de quem indicou." : "Ao aprovar, você cadastra o vendedor e cria o login dele."}
+      sub={ehVendedor ? "Quando o dono aprovar, você ganha um bônus nos meses em que quem você indicou bater a meta." : "Ao aprovar, você cadastra o vendedor e cria o login dele."}
     >
       <div className="divide-y divide-slate-100">
         {lista.map((p) => (

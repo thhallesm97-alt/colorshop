@@ -1200,13 +1200,13 @@ export function VendedorModal() {
         </Field>
       )}
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Indicado por" hint="Quem trouxe este vendedor ganha comissão sobre o lucro das vendas dele.">
+        <Field label="Indicado por" hint="Quem trouxe este vendedor ganha um bônus nos meses em que ele bater a meta.">
           <select className={inputCls} value={indicadoPor} onChange={(e) => setIndicadoPor(e.target.value)}>
             <option value="">Ninguém</option>
             {podemIndicar.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
           </select>
         </Field>
-        <Field label="Comissão sobre indicados (%)" hint="O que este vendedor ganha sobre o lucro dos vendedores que ele indicar.">
+        <Field label="Comissão sobre indicados (%)" hint="Quando um indicado bate a meta, este vendedor ganha o bônus da meta sobre este % do lucro do indicado (ex.: 20% de 5%).">
           <input type="number" step="0.1" min="0" max="100" className={inputCls} value={comissaoIndicacao} onChange={(e) => setComissaoIndicacao(n(e.target.value))} />
         </Field>
       </div>
@@ -1240,7 +1240,7 @@ export function VendedorModal() {
         </label>
         <label className="flex items-start gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={podeIndicarVendedor} onChange={(e) => setPodeIndicarVendedor(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
-          <span>Indicar vendedores abaixo dele <span className="text-xs text-slate-400">(o dono aprova; ele ganha comissão sobre o lucro deles)</span></span>
+          <span>Indicar vendedores abaixo dele <span className="text-xs text-slate-400">(o dono aprova; ele ganha bônus quando os indicados batem a meta)</span></span>
         </label>
       </div>
       {isEdit && (
@@ -1581,7 +1581,7 @@ export function IndicacaoModal() {
   }
   return (
     <Modal title="Indicar vendedor" onClose={fecharModal}>
-      <p className="text-sm text-slate-500 mb-4">O dono recebe a indicação e cria o acesso. Você ganha comissão sobre o lucro das vendas de quem indicar.</p>
+      <p className="text-sm text-slate-500 mb-4">O dono recebe a indicação e cria o acesso. Você ganha um bônus nos meses em que quem você indicar bater a meta.</p>
       <Field label="Nome"><input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} autoFocus /></Field>
       <Field label="WhatsApp / telefone"><input className={inputCls} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="+595 981 234 567" /></Field>
       <Field label="Observação para o dono"><input className={inputCls} value={obs} onChange={(e) => setObs(e.target.value)} /></Field>
