@@ -1114,8 +1114,8 @@ export function DadosModal() {
       <div>
         <div className="text-sm font-semibold text-slate-900 mb-1">Usar como aplicativo</div>
         <p className="text-sm text-slate-500 mb-3">
-          Instale o Shopping 25 neste computador para abrir pelo ícone na área de trabalho, mesmo sem internet.
-          {!instalar && " Se o botão não aparecer, use o menu do Chrome ou Edge: “Instalar Shopping 25”."}
+          Instale o Panssantim Multi Shop neste computador para abrir pelo ícone na área de trabalho, mesmo sem internet.
+          {!instalar && " Se o botão não aparecer, use o menu do Chrome ou Edge: “Instalar Panssantim Multi Shop”."}
         </p>
         {instalar && (
           <button
@@ -1271,7 +1271,7 @@ export function ListaPrecosModal() {
   const selecionados = candidatos.filter((i) => !desmarcados.has(i.id));
 
   const gerado = [
-    `*Shopping 25 · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
+    `*Panssantim Multi Shop · Lista de preços${tabela === "Varejo" ? "" : " " + tabela.toLowerCase()}*`,
     fmtDate(todayISO()),
     "",
     ...selecionados.map((i) => `• ${i.nome}: ${fmtUSD(precoDe(i, tabela))}${comFotos && i.foto ? `\n  Foto: ${urlPublica(i.foto)}` : ""}`),

@@ -13,11 +13,11 @@ export default defineConfig({
     !process.env.VITE_DEMO &&
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icone.svg", "icone-192.png", "icone-512.png"],
+      includeAssets: ["favicon.png", "logo.png", "icone-192.png", "icone-512.png"],
       manifest: {
-        name: "Shopping 25 — Gestão",
-        short_name: "Shopping 25",
-        description: "Estoque, vendas, clientes, fornecedores e caixa do Shopping 25.",
+        name: "Panssantim Multi Shop — Gestão",
+        short_name: "Panssantim",
+        description: "Estoque, vendas, clientes, fornecedores e caixa da Panssantim Multi Shop.",
         lang: "pt-BR",
         start_url: "/",
         display: "standalone",

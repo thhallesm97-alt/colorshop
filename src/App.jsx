@@ -1132,10 +1132,10 @@ export default function Shopping25App() {
   const sidebar = (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full">
       <div className="flex items-center gap-3 px-5 py-5">
-        <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-9 h-9" />
+        <img src={import.meta.env.BASE_URL + "icone-192.png"} alt="" className="w-10 h-10 rounded-full" />
         <div>
-          <div className="text-base font-semibold leading-tight tracking-tight">Shopping 25</div>
-          <div className="text-[11px] text-slate-400 leading-tight">Gestão da loja</div>
+          <div className="text-base font-semibold leading-tight tracking-tight">Panssantim</div>
+          <div className="text-[11px] text-slate-400 leading-tight">Multi Shop · Gestão da loja</div>
         </div>
       </div>
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
@@ -1307,12 +1307,9 @@ function TelaEntrar({ sync }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
       <form onSubmit={entrar} className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <img src={import.meta.env.BASE_URL + "icone.svg"} alt="" className="w-10 h-10" />
-          <div>
-            <div className="text-lg font-semibold leading-tight">Shopping 25</div>
-            <div className="text-xs text-slate-400">Gestão da loja</div>
-          </div>
+        <div className="mb-6">
+          <img src={import.meta.env.BASE_URL + "logo.png"} alt="Panssantim Multi Shop" className="w-full rounded-xl" />
+          <div className="text-xs text-slate-400 text-center mt-2">Gestão da loja</div>
         </div>
         {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</div>}
         <label className="block text-xs font-medium text-slate-600 mb-1">Usuário</label>

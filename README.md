@@ -1,4 +1,4 @@
-# Shopping 25
+# Panssantim Multi Shop
 
 Sistema de gestão da loja: estoque, vendas, mais vendidos, compras, caixa, contas a pagar, clientes, fornecedores e câmbio. Todos os valores em dólar (US$).
 
@@ -21,7 +21,7 @@ Na primeira vez que esta versão abre em um navegador que já usava a versão an
 
 ## Instalar nos computadores
 
-Abra o site no Chrome ou Edge e clique em **Instalar no computador** (no menu lateral) ou no ícone de instalar na barra de endereço. O Shopping 25 ganha um ícone na área de trabalho e abre mesmo sem internet.
+Abra o site no Chrome ou Edge e clique em **Instalar no computador** (no menu lateral) ou no ícone de instalar na barra de endereço. O Panssantim Multi Shop ganha um ícone na área de trabalho e abre mesmo sem internet.
 
 ## Rodar localmente (opcional, exige Node.js)
 
